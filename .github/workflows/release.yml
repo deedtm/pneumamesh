@@ -5,7 +5,6 @@ on:
     tags:
       - 'v*.*.*'
 
-# Даем права на создание релизов
 permissions:
   contents: write
 
@@ -16,22 +15,42 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.41.5'
 
-      - name: Install dependencies
-        run: flutter pub get
-        working-directory: ui
+      - name: Build Android Native Libraries (.so)
+        run: |
+          export CGO_ENABLED=1
+          
+          # 1. Собираем под ARM64 (современные устройства)
+          export GOOS=android
+          export GOARCH=arm64
+          export CC=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang
+          mkdir -p ui/android/app/src/main/jniLibs/arm64-v8a
+          go build -ldflags="-checklinkname=0" -buildmode=c-shared -o ui/android/app/src/main/jniLibs/arm64-v8a/libpneumamesh.so .
+          
+          # 2. Собираем под ARM v7 (старые 32-битные устройства)
+          export GOARCH=arm
+          export GOARM=7
+          export CC=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi24-clang
+          mkdir -p ui/android/app/src/main/jniLibs/armeabi-v7a
+          go build -ldflags="-checklinkname=0" -buildmode=c-shared -o ui/android/app/src/main/jniLibs/armeabi-v7a/libpneumamesh.so .
 
       - name: Build APK (Android)
-        run: flutter build apk --release
+        run: |
+          flutter pub get
+          flutter build apk --release
         working-directory: ui
 
       - name: Rename APK
-        run: mv build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/pneumamesh-${{ github.ref_name }}.apk
-        working-directory: ui
+        run: mv ui/build/app/outputs/flutter-apk/app-release.apk ui/build/app/outputs/flutter-apk/pneumamesh-${{ github.ref_name }}.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
@@ -45,32 +64,38 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.41.5'
 
-      - name: Install dependencies
-        run: flutter pub get
-        working-directory: ui
+      - name: Build Windows Native Library (.dll)
+        shell: pwsh
+        run: |
+          $env:CGO_ENABLED="1"
+          $env:GOOS="windows"
+          $env:GOARCH="amd64"
+          $env:CC="gcc"
+          go build -ldflags="-checklinkname=0 -s -w -extldflags '-static -m64'" -buildmode=c-shared -o ui/pneumamesh.dll .
 
       - name: Build Windows app
-        run: flutter build windows --release
-        working-directory: ui
+        run: |
+          cd ui
+          flutter pub get
+          flutter build windows --release
 
       - name: Zip Windows Release
         shell: pwsh
         working-directory: ui
         run: |
-          # Находим папку Release (обычно в build/windows/x64/runner/Release)
-          $releasePath = Get-ChildItem -Path "build/windows" -Recurse -Directory | Where-Object { $_.Name -eq "Release" -and $_.FullName -match "runner" } | Select-Object -First 1
-          if (-not $releasePath) {
-            Write-Error "Release directory not found"
-            exit 1
-          }
-          Write-Host "Zipping content from: $($releasePath.FullName)"
-          # Архивируем всё содержимое папки (exe, dll, data)
-          Compress-Archive -Path "$($releasePath.FullName)\*" -DestinationPath "pneumamesh-${{ github.ref_name }}-windows.zip"
+          $releaseDir = Get-ChildItem -Path "build/windows" -Recurse -Directory | Where-Object { $_.Name -eq "Release" -and $_.FullName -match "runner" } | Select-Object -First 1
+          Copy-Item -Path "pneumamesh.dll" -Destination $releaseDir.FullName
+          Compress-Archive -Path "$($releaseDir.FullName)\*" -DestinationPath "pneumamesh-${{ github.ref_name }}-windows.zip"
 
       - name: Upload Windows ZIP
         uses: actions/upload-artifact@v4
