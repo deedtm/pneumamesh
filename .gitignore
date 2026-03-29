@@ -108,9 +108,6 @@ app.*.map.json
 *.test
 *.prof
 *.coverprofile
-*.pb.go
-*.sum
-*.mod
 _test/
 _obj/
 _bin/
