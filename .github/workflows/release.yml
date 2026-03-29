@@ -12,22 +12,16 @@ jobs:
   build-android:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
         with:
           go-version: '1.22'
-
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
+      - uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.41.5'
-
-      - name: Build Android Native Libraries (.so)
-        working-directory: core
-        run: |
+      - run: |
+          cd core
+          go mod tidy
           export CGO_ENABLED=1
           
           export GOOS=android
@@ -41,18 +35,12 @@ jobs:
           export CC=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi24-clang
           mkdir -p ../ui/android/app/src/main/jniLibs/armeabi-v7a
           go build -ldflags="-checklinkname=0" -buildmode=c-shared -o ../ui/android/app/src/main/jniLibs/armeabi-v7a/libpneumamesh.so .
-
-      - name: Build APK (Android)
-        working-directory: ui
-        run: |
+      - run: |
           flutter pub get
           flutter build apk --release
-
-      - name: Rename APK
-        run: mv ui/build/app/outputs/flutter-apk/app-release.apk ui/build/app/outputs/flutter-apk/pneumamesh-${{ github.ref_name }}.apk
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
+        working-directory: ui
+      - run: mv ui/build/app/outputs/flutter-apk/app-release.apk ui/build/app/outputs/flutter-apk/pneumamesh-${{ github.ref_name }}.apk
+      - uses: actions/upload-artifact@v4
         with:
           name: android-apk
           path: ui/build/app/outputs/flutter-apk/pneumamesh-${{ github.ref_name }}.apk
@@ -60,45 +48,33 @@ jobs:
   build-windows:
     runs-on: windows-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
         with:
           go-version: '1.22'
-
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
+      - uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.41.5'
-
-      - name: Build Windows Native Library (.dll)
-        working-directory: core
-        shell: pwsh
+      - shell: pwsh
         run: |
+          cd core
+          go mod tidy
           $env:CGO_ENABLED="1"
           $env:GOOS="windows"
           $env:GOARCH="amd64"
           $env:CC="gcc"
           go build -ldflags="-checklinkname=0 -s -w -extldflags '-static -m64'" -buildmode=c-shared -o ../ui/pneumamesh.dll .
-
-      - name: Build Windows app
-        working-directory: ui
-        run: |
+      - run: |
+          cd ui
           flutter pub get
           flutter build windows --release
-
-      - name: Zip Windows Release
-        shell: pwsh
+      - shell: pwsh
         working-directory: ui
         run: |
-          $releaseDir = Get-ChildItem -Path "build/windows" -Recurse -Directory | Where-Object { $_.Name -eq "Release" -and $_.FullName -match "runner" } | Select-Object -First 1
-          Copy-Item -Path "pneumamesh.dll" -Destination $releaseDir.FullName
-          Compress-Archive -Path "$($releaseDir.FullName)\*" -DestinationPath "pneumamesh-${{ github.ref_name }}-windows.zip"
-
-      - name: Upload Windows ZIP
-        uses: actions/upload-artifact@v4
+          $dir = Get-ChildItem -Path "build/windows" -Recurse -Directory | Where-Object { $_.Name -eq "Release" -and $_.FullName -match "runner" } | Select-Object -First 1
+          Copy-Item -Path "pneumamesh.dll" -Destination $dir.FullName
+          Compress-Archive -Path "$($dir.FullName)\*" -DestinationPath "pneumamesh-${{ github.ref_name }}-windows.zip"
+      - uses: actions/upload-artifact@v4
         with:
           name: windows-zip
           path: ui/pneumamesh-${{ github.ref_name }}-windows.zip
@@ -107,14 +83,11 @@ jobs:
     needs: [build-android, build-windows]
     runs-on: ubuntu-latest
     steps:
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           path: artifacts
           merge-multiple: true
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v2
         with:
           files: artifacts/*
         env:
