@@ -1,0 +1,81 @@
+name: Build and Release PneumaMesh
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.19.0'
+
+      - name: Install dependencies
+        run: flutter pub get
+        working-directory: ui
+
+      - name: Build APK (Android)
+        run: flutter build apk --release
+        working-directory: ui
+
+      - name: Build Windows EXE
+        uses: ilammy/setup-nasm@v1 # For Windows build
+      - name: Set up Windows runner
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Build Windows app
+        run: |
+          sudo apt-get update && sudo apt-get install -y mingw-w64
+          flutter build windows --release
+        working-directory: ui
+
+      - name: Rename APK
+        run: mv build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/pneumamesh-v${{ github.ref_name }}.apk
+        working-directory: ui
+
+      - name: Rename EXE
+        run: mv build/windows/runner/Release/PneumaMesh.exe build/windows/runner/Release/pneumamesh-v${{ github.ref_name }}.exe
+        working-directory: ui
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pneumamesh-v${{ github.ref_name }}.apk
+          path: ui/build/app/outputs/flutter-apk/pneumamesh-v${{ github.ref_name }}.apk
+
+      - name: Upload Windows EXE artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pneumamesh-v${{ github.ref_name }}.exe
+          path: ui/build/windows/runner/Release/pneumamesh-v${{ github.ref_name }}.exe
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: app-release.apk
+          path: .
+      - name: Download Windows EXE artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: PneumaMesh.exe
+          path: .
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            app-release.apk
+            PneumaMesh.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
