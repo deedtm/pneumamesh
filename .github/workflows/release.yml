@@ -26,28 +26,27 @@ jobs:
           flutter-version: '3.41.5'
 
       - name: Build Android Native Libraries (.so)
+        working-directory: core
         run: |
           export CGO_ENABLED=1
           
-          # 1. Собираем под ARM64 (современные устройства)
           export GOOS=android
           export GOARCH=arm64
           export CC=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang
-          mkdir -p ui/android/app/src/main/jniLibs/arm64-v8a
-          go build -ldflags="-checklinkname=0" -buildmode=c-shared -o ui/android/app/src/main/jniLibs/arm64-v8a/libpneumamesh.so .
+          mkdir -p ../ui/android/app/src/main/jniLibs/arm64-v8a
+          go build -ldflags="-checklinkname=0" -buildmode=c-shared -o ../ui/android/app/src/main/jniLibs/arm64-v8a/libpneumamesh.so .
           
-          # 2. Собираем под ARM v7 (старые 32-битные устройства)
           export GOARCH=arm
           export GOARM=7
           export CC=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi24-clang
-          mkdir -p ui/android/app/src/main/jniLibs/armeabi-v7a
-          go build -ldflags="-checklinkname=0" -buildmode=c-shared -o ui/android/app/src/main/jniLibs/armeabi-v7a/libpneumamesh.so .
+          mkdir -p ../ui/android/app/src/main/jniLibs/armeabi-v7a
+          go build -ldflags="-checklinkname=0" -buildmode=c-shared -o ../ui/android/app/src/main/jniLibs/armeabi-v7a/libpneumamesh.so .
 
       - name: Build APK (Android)
+        working-directory: ui
         run: |
           flutter pub get
           flutter build apk --release
-        working-directory: ui
 
       - name: Rename APK
         run: mv ui/build/app/outputs/flutter-apk/app-release.apk ui/build/app/outputs/flutter-apk/pneumamesh-${{ github.ref_name }}.apk
@@ -75,17 +74,18 @@ jobs:
           flutter-version: '3.41.5'
 
       - name: Build Windows Native Library (.dll)
+        working-directory: core
         shell: pwsh
         run: |
           $env:CGO_ENABLED="1"
           $env:GOOS="windows"
           $env:GOARCH="amd64"
           $env:CC="gcc"
-          go build -ldflags="-checklinkname=0 -s -w -extldflags '-static -m64'" -buildmode=c-shared -o ui/pneumamesh.dll .
+          go build -ldflags="-checklinkname=0 -s -w -extldflags '-static -m64'" -buildmode=c-shared -o ../ui/pneumamesh.dll .
 
       - name: Build Windows app
+        working-directory: ui
         run: |
-          cd ui
           flutter pub get
           flutter build windows --release
 
@@ -118,4 +118,4 @@ jobs:
         with:
           files: artifacts/*
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          [cite_start]GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} [cite: 3]
