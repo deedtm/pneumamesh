@@ -6,7 +6,7 @@ on:
       - 'v*.*.*'
 
 jobs:
-  build:
+  build-android:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -25,24 +25,8 @@ jobs:
         run: flutter build apk --release
         working-directory: ui
 
-      - name: Build Windows EXE
-        uses: ilammy/setup-nasm@v1 # For Windows build
-      - name: Set up Windows runner
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.x'
-      - name: Build Windows app
-        run: |
-          sudo apt-get update && sudo apt-get install -y mingw-w64
-          flutter build windows --release
-        working-directory: ui
-
       - name: Rename APK
         run: mv build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/pneumamesh-v${{ github.ref_name }}.apk
-        working-directory: ui
-
-      - name: Rename EXE
-        run: mv build/windows/runner/Release/PneumaMesh.exe build/windows/runner/Release/pneumamesh-v${{ github.ref_name }}.exe
         working-directory: ui
 
       - name: Upload APK artifact
@@ -51,6 +35,29 @@ jobs:
           name: pneumamesh-v${{ github.ref_name }}.apk
           path: ui/build/app/outputs/flutter-apk/pneumamesh-v${{ github.ref_name }}.apk
 
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.41.5'
+
+      - name: Install dependencies
+        run: flutter pub get
+        working-directory: ui
+
+      - name: Build Windows app
+        run: flutter build windows --release
+        working-directory: ui
+
+      - name: Rename EXE
+        run: Rename-Item -Path "ui/build/windows/runner/Release/PneumaMesh.exe" -NewName "pneumamesh-v${{ github.ref_name }}.exe"
+        shell: pwsh
+
       - name: Upload Windows EXE artifact
         uses: actions/upload-artifact@v4
         with:
@@ -58,24 +65,24 @@ jobs:
           path: ui/build/windows/runner/Release/pneumamesh-v${{ github.ref_name }}.exe
 
   release:
-    needs: build
+    needs: [build-android, build-windows]
     runs-on: ubuntu-latest
     steps:
-      - name: Download build artifacts
+      - name: Download APK artifact
         uses: actions/download-artifact@v4
         with:
-          name: app-release.apk
+          name: pneumamesh-v${{ github.ref_name }}.apk
           path: .
       - name: Download Windows EXE artifact
         uses: actions/download-artifact@v4
         with:
-          name: PneumaMesh.exe
+          name: pneumamesh-v${{ github.ref_name }}.exe
           path: .
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            app-release.apk
-            PneumaMesh.exe
+            pneumamesh-v${{ github.ref_name }}.apk
+            pneumamesh-v${{ github.ref_name }}.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
