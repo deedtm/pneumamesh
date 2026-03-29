@@ -19,11 +19,11 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.41.5'
-      - run: |
-          cd core
+      - name: build native
+        working-directory: core
+        run: |
           go mod tidy
           export CGO_ENABLED=1
-          
           export GOOS=android
           export GOARCH=arm64
           export CC=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang
@@ -35,10 +35,11 @@ jobs:
           export CC=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi24-clang
           mkdir -p ../ui/android/app/src/main/jniLibs/armeabi-v7a
           go build -ldflags="-checklinkname=0" -buildmode=c-shared -o ../ui/android/app/src/main/jniLibs/armeabi-v7a/libpneumamesh.so .
-      - run: |
+      - name: build apk
+        working-directory: ui
+        run: |
           flutter pub get
           flutter build apk --release
-        working-directory: ui
       - run: mv ui/build/app/outputs/flutter-apk/app-release.apk ui/build/app/outputs/flutter-apk/pneumamesh-${{ github.ref_name }}.apk
       - uses: actions/upload-artifact@v4
         with:
@@ -55,21 +56,24 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.41.5'
-      - shell: pwsh
+      - name: build native
+        working-directory: core
+        shell: pwsh
         run: |
-          cd core
           go mod tidy
           $env:CGO_ENABLED="1"
           $env:GOOS="windows"
           $env:GOARCH="amd64"
           $env:CC="gcc"
           go build -ldflags="-checklinkname=0 -s -w -extldflags '-static -m64'" -buildmode=c-shared -o ../ui/pneumamesh.dll .
-      - run: |
-          cd ui
+      - name: build app
+        working-directory: ui
+        run: |
           flutter pub get
           flutter build windows --release
-      - shell: pwsh
+      - name: package
         working-directory: ui
+        shell: pwsh
         run: |
           $dir = Get-ChildItem -Path "build/windows" -Recurse -Directory | Where-Object { $_.Name -eq "Release" -and $_.FullName -match "runner" } | Select-Object -First 1
           Copy-Item -Path "pneumamesh.dll" -Destination $dir.FullName
