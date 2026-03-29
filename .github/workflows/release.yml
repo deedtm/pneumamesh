@@ -26,14 +26,14 @@ jobs:
         working-directory: ui
 
       - name: Rename APK
-        run: mv build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/pneumamesh-v${{ github.ref_name }}.apk
+        run: mv build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/pneumamesh-${{ github.ref_name }}.apk
         working-directory: ui
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: pneumamesh-v${{ github.ref_name }}.apk
-          path: ui/build/app/outputs/flutter-apk/pneumamesh-v${{ github.ref_name }}.apk
+          name: pneumamesh-${{ github.ref_name }}.apk
+          path: ui/build/app/outputs/flutter-apk/pneumamesh-${{ github.ref_name }}.apk
 
   build-windows:
     runs-on: windows-latest
@@ -55,14 +55,16 @@ jobs:
         working-directory: ui
 
       - name: Rename EXE
-        run: Rename-Item -Path "ui/build/windows/runner/Release/PneumaMesh.exe" -NewName "pneumamesh-v${{ github.ref_name }}.exe"
+        run: Rename-Item -Path "build/windows/runner/Release/PneumaMesh.exe" -NewName "pneumamesh-${{ github.ref_name }}.exe"
         shell: pwsh
+        working-directory: ui
 
       - name: Upload Windows EXE artifact
         uses: actions/upload-artifact@v4
         with:
-          name: pneumamesh-v${{ github.ref_name }}.exe
-          path: ui/build/windows/runner/Release/pneumamesh-v${{ github.ref_name }}.exe
+          name: pneumamesh-${{ github.ref_name }}.exe
+          path: ui/build/windows/runner/Release/pneumamesh-${{ github.ref_name }}.exe
+          working-directory: ui
 
   release:
     needs: [build-android, build-windows]
@@ -71,18 +73,18 @@ jobs:
       - name: Download APK artifact
         uses: actions/download-artifact@v4
         with:
-          name: pneumamesh-v${{ github.ref_name }}.apk
+          name: pneumamesh-${{ github.ref_name }}.apk
           path: .
       - name: Download Windows EXE artifact
         uses: actions/download-artifact@v4
         with:
-          name: pneumamesh-v${{ github.ref_name }}.exe
+          name: pneumamesh-${{ github.ref_name }}.exe
           path: .
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            pneumamesh-v${{ github.ref_name }}.apk
-            pneumamesh-v${{ github.ref_name }}.exe
+            pneumamesh-${{ github.ref_name }}.apk
+            pneumamesh-${{ github.ref_name }}.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
