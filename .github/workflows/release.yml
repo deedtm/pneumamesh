@@ -118,4 +118,4 @@ jobs:
         with:
           files: artifacts/*
         env:
-          [cite_start]GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} [cite: 3]
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
