@@ -5,6 +5,10 @@ on:
     tags:
       - 'v*.*.*'
 
+# Даем права на создание релизов
+permissions:
+  contents: write
+
 jobs:
   build-android:
     runs-on: ubuntu-latest
@@ -54,22 +58,25 @@ jobs:
         run: flutter build windows --release
         working-directory: ui
 
-      - name: Rename EXE
+      - name: Zip Windows Release
         shell: pwsh
         working-directory: ui
         run: |
-          $exe = Get-ChildItem -Path "build/windows" -Filter "*.exe" -Recurse | Where-Object { $_.FullName -match "Release" } | Select-Object -First 1
-          if (-not $exe) { 
-            Write-Error "exe not found in build directory"
-            exit 1 
+          # Находим папку Release (обычно в build/windows/x64/runner/Release)
+          $releasePath = Get-ChildItem -Path "build/windows" -Recurse -Directory | Where-Object { $_.Name -eq "Release" -and $_.FullName -match "runner" } | Select-Object -First 1
+          if (-not $releasePath) {
+            Write-Error "Release directory not found"
+            exit 1
           }
-          Rename-Item -Path $exe.FullName -NewName "pneumamesh-${{ github.ref_name }}.exe"
+          Write-Host "Zipping content from: $($releasePath.FullName)"
+          # Архивируем всё содержимое папки (exe, dll, data)
+          Compress-Archive -Path "$($releasePath.FullName)\*" -DestinationPath "pneumamesh-${{ github.ref_name }}-windows.zip"
 
-      - name: Upload Windows EXE
+      - name: Upload Windows ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: windows-exe
-          path: ui/build/windows/**/pneumamesh-${{ github.ref_name }}.exe
+          name: windows-zip
+          path: ui/pneumamesh-${{ github.ref_name }}-windows.zip
 
   release:
     needs: [build-android, build-windows]
