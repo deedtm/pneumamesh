@@ -18,11 +18,11 @@ import (
 	"context"
 	"encoding/base64"
 	"pneumamesh-core/pb"
-	"sync"
 	"time"
 	"unsafe"
 
 	"github.com/libp2p/go-libp2p/core/crypto"
+	"github.com/libp2p/go-libp2p/core/transport"
 
 	"github.com/libp2p/go-libp2p"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
@@ -31,15 +31,12 @@ import (
 
 // Глобальные переменные
 var (
-	globalChatState *ChatState
-	globalCancel    context.CancelFunc
-	localUser       *pb.User
-	dartCallback    C.MessageCallback
-	lastInitError   error
-
-	wifiMu    sync.RWMutex
-	wifiSSID  string
-	wifiBSSID string
+	globalChatState       *ChatState
+	globalCancel          context.CancelFunc
+	globalInjectTransport *InjectTransport
+	localUser             *pb.User
+	dartCallback          C.MessageCallback
+	lastInitError         error
 )
 
 //export GeneratePrivateKey
@@ -66,10 +63,13 @@ func StartNode(username *C.char, privKeyB64 *C.char) {
 		lastInitError = nil
 
 		options := []libp2p.Option{
-			libp2p.ListenAddrStrings("/ip4/0.0.0.0/tcp/0"),
+			libp2p.NoListenAddrs,
 			libp2p.DisableRelay(),
-			libp2p.NATPortMap(),
 			libp2p.Ping(false),
+			libp2p.Transport(func(up transport.Upgrader) (transport.Transport, error) {
+				globalInjectTransport = NewInjectTransport(up)
+				return globalInjectTransport, nil
+			}),
 		}
 
 		if b64Str != "" {
@@ -87,15 +87,11 @@ func StartNode(username *C.char, privKeyB64 *C.char) {
 			lastInitError = err
 			return
 		}
+		// Запускаем фейковый listener, чтобы inbound BLE conn забирались через Accept()
+		_ = h.Network().Listen(injectMultiaddr)
 
 		currentRoom := "main-room"
 		networkName := "pneumamesh"
-
-		err = setupDiscovery(ctx, h, networkName)
-		if err != nil {
-			lastInitError = err
-			return
-		}
 
 		ps, err := pubsub.NewGossipSub(ctx, h)
 		if err != nil {
@@ -162,17 +158,6 @@ func RegisterMessageCallback(cb C.MessageCallback) {
 	dartCallback = cb
 }
 
-//export RegisterWifiInfo
-func RegisterWifiInfo(ssid *C.char, bssid *C.char) {
-	s := C.GoString(ssid)
-	b := C.GoString(bssid)
-
-	wifiMu.Lock()
-	wifiSSID = s
-	wifiBSSID = b
-	wifiMu.Unlock()
-}
-
 func sendToDart(data []byte) {
 	if dartCallback == nil {
 		return
@@ -211,28 +196,11 @@ func GetMyID() *C.char {
 
 //export GetFullState
 func GetFullState(outLength *C.int) *C.uint8_t {
-	wifiMu.RLock()
-	currentSSID := wifiSSID
-	currentBSSID := wifiBSSID
-	wifiMu.RUnlock()
-
-	if currentSSID == "" || currentBSSID == "" {
-		fallbackSSID, fallbackBSSID := inferLocalNetworkIdentity()
-		if currentSSID == "" {
-			currentSSID = fallbackSSID
-		}
-		if currentBSSID == "" {
-			currentBSSID = fallbackBSSID
-		}
-	}
-
 	if lastInitError != nil {
 		state := &pb.FullState{
 			User:        &pb.User{Id: "ERROR", Name: "Error"},
 			CurrentRoom: lastInitError.Error(),
 			Network:     "Error",
-			WifiSsid:    currentSSID,
-			WifiBssid:   currentBSSID,
 		}
 		data, _ := proto.Marshal(state)
 		*outLength = C.int(len(data))
@@ -247,8 +215,6 @@ func GetFullState(outLength *C.int) *C.uint8_t {
 		User:        localUser,
 		CurrentRoom: globalChatState.CurrentRoom,
 		Network:     globalChatState.NetworkName,
-		WifiSsid:    currentSSID,
-		WifiBssid:   currentBSSID,
 	}
 
 	data, err := proto.Marshal(state)

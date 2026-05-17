@@ -1,7 +1,4 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
-import 'package:network_info_plus/network_info_plus.dart';
 import 'package:pneumamesh/chats_page.dart';
 
 import 'global_db.dart';
@@ -34,19 +31,6 @@ class _LoginPageState extends State<LoginPage> {
     super.dispose();
   }
 
-  Future<void> _pushWifiToCore() async {
-    final info = NetworkInfo();
-    final ssidRaw = await info.getWifiName();
-    final bssidRaw = await info.getWifiBSSID();
-
-    final ssid = (ssidRaw ?? '').replaceAll('"', '');
-    final bssid = bssidRaw ?? '';
-
-    if (Platform.isAndroid || Platform.isIOS) {
-      PneumaCore().registerWifiInfo(ssid, bssid);
-    }
-  }
-
   void _login() async {
     final username = _nameController.text.trim();
     if (username.isEmpty) return;
@@ -62,8 +46,8 @@ class _LoginPageState extends State<LoginPage> {
       privKey = account['private_key'] as String;
     }
 
-    await _pushWifiToCore();
     await PneumaCore().startNode(username, privKey);
+    await PneumaCore().startBleDiscovery();
     if (mounted) {
       Navigator.push(
         context,
@@ -86,7 +70,11 @@ class _LoginPageState extends State<LoginPage> {
           children: [
             Column(
               children: [
-                Text("Welcome!", style: TextStyle(fontSize: 25.0)),
+                Text(
+                  "Welcome\nto\nPneumaMesh!",
+                  style: TextStyle(fontSize: 25.0),
+                  textAlign: TextAlign.center,
+                ),
                 SizedBox(height: 50),
                 Container(
                   width: 250,
@@ -100,6 +88,7 @@ class _LoginPageState extends State<LoginPage> {
                   child: Center(
                     child: TextField(
                       controller: _nameController,
+                      autofocus: true,
                       textAlign: TextAlign.center,
                       maxLength: 16,
                       onSubmitted: (value) => _login(),

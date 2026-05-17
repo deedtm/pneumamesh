@@ -58,16 +58,13 @@ const FullState$json = {
     {'1': 'user', '3': 1, '4': 1, '5': 11, '6': '.pb.User', '10': 'user'},
     {'1': 'current_room', '3': 2, '4': 1, '5': 9, '10': 'currentRoom'},
     {'1': 'network', '3': 3, '4': 1, '5': 9, '10': 'network'},
-    {'1': 'wifi_ssid', '3': 4, '4': 1, '5': 9, '10': 'wifiSsid'},
-    {'1': 'wifi_bssid', '3': 5, '4': 1, '5': 9, '10': 'wifiBssid'},
   ],
 };
 
 /// Descriptor for `FullState`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List fullStateDescriptor = $convert.base64Decode(
     'CglGdWxsU3RhdGUSHAoEdXNlchgBIAEoCzIILnBiLlVzZXJSBHVzZXISIQoMY3VycmVudF9yb2'
-    '9tGAIgASgJUgtjdXJyZW50Um9vbRIYCgduZXR3b3JrGAMgASgJUgduZXR3b3JrEhsKCXdpZmlf'
-    'c3NpZBgEIAEoCVIId2lmaVNzaWQSHQoKd2lmaV9ic3NpZBgFIAEoCVIJd2lmaUJzc2lk');
+    '9tGAIgASgJUgtjdXJyZW50Um9vbRIYCgduZXR3b3JrGAMgASgJUgduZXR3b3Jr');
 
 @$core.Deprecated('Use discoveryPacketDescriptor instead')
 const DiscoveryPacket$json = {

@@ -4,6 +4,7 @@ import 'dart:io' show Platform;
 
 import 'package:ffi/ffi.dart';
 import 'package:fixnum/fixnum.dart';
+import 'package:flutter/services.dart';
 import 'package:pneumamesh/pb/message.pb.dart';
 
 import 'daos.dart';
@@ -37,11 +38,6 @@ typedef RegisterMessageCallbackDart =
 typedef StopNodeNative = ffi.Void Function();
 typedef StopNodeDart = void Function();
 
-typedef RegisterWifiInfoNative =
-    ffi.Void Function(ffi.Pointer<Utf8> ssid, ffi.Pointer<Utf8> bssid);
-typedef RegisterWifiInfoDart =
-    void Function(ffi.Pointer<Utf8> ssid, ffi.Pointer<Utf8> bssid);
-
 typedef GetFullStateNative =
     ffi.Pointer<ffi.Uint8> Function(ffi.Pointer<ffi.Int32> outLength);
 typedef GetFullStateDart =
@@ -49,6 +45,9 @@ typedef GetFullStateDart =
 
 typedef FreeMemoryNative = ffi.Void Function(ffi.Pointer<ffi.Void>);
 typedef FreeMemoryDart = void Function(ffi.Pointer<ffi.Void>);
+
+typedef GetMyIDNative = ffi.Pointer<Utf8> Function();
+typedef GetMyIDDart = ffi.Pointer<Utf8> Function();
 
 class PneumaCore {
   static final PneumaCore _instance = PneumaCore._internal();
@@ -65,9 +64,9 @@ class PneumaCore {
   late RegisterMessageCallbackDart registerMessageCallbackC;
   ffi.NativeCallable<MessageCallbackNative>? _messageCb;
   late StopNodeDart stopNodeC;
-  late RegisterWifiInfoDart registerWifiInfoC;
   late GetFullStateDart getFullStateC;
   late FreeMemoryDart freeMemoryC;
+  late GetMyIDDart getMyIdC;
 
   bool _isInitialized = false;
 
@@ -76,18 +75,12 @@ class PneumaCore {
   Stream<ChatMessage> get incomingMessages =>
       _incomingMessagesController.stream;
 
+  static const MethodChannel _bleChannel = MethodChannel(
+    'com.pneumamesh/broadcaster',
+  );
+
   String _resolveStorageNetwork(FullState state) {
-    final wifiNetwork = '${state.wifiBssid}${state.wifiSsid}'.trim();
-    if (wifiNetwork.isNotEmpty) {
-      return wifiNetwork;
-    }
-
-    final protocolNetwork = state.network.trim();
-    if (protocolNetwork.isNotEmpty) {
-      return protocolNetwork;
-    }
-
-    return 'wifi::fallback';
+    return state.network.trim();
   }
 
   static void _onMessageFromGo(
@@ -113,7 +106,7 @@ class PneumaCore {
 
       final state = core.getFullState();
       String room = 'main-room';
-      String network = 'wifi::fallback';
+      String network = '';
       if (state != null) {
         room = state.currentRoom;
         network = core._resolveStorageNetwork(state);
@@ -185,10 +178,6 @@ class PneumaCore {
         .lookup<ffi.NativeFunction<StopNodeNative>>('StopNode')
         .asFunction<StopNodeDart>();
 
-    registerWifiInfoC = nativeLib
-        .lookup<ffi.NativeFunction<RegisterWifiInfoNative>>('RegisterWifiInfo')
-        .asFunction<RegisterWifiInfoDart>();
-
     getFullStateC = nativeLib
         .lookup<ffi.NativeFunction<GetFullStateNative>>('GetFullState')
         .asFunction<GetFullStateDart>();
@@ -196,6 +185,10 @@ class PneumaCore {
     freeMemoryC = nativeLib
         .lookup<ffi.NativeFunction<FreeMemoryNative>>('FreeMemory')
         .asFunction<FreeMemoryDart>();
+
+    getMyIdC = nativeLib
+        .lookup<ffi.NativeFunction<GetMyIDNative>>('GetMyID')
+        .asFunction<GetMyIDDart>();
 
     _isInitialized = true;
   }
@@ -270,17 +263,6 @@ class PneumaCore {
     stopNodeC();
   }
 
-  void registerWifiInfo(String ssid, String bssid) {
-    final ssidPtr = ssid.toNativeUtf8();
-    final bssidPtr = bssid.toNativeUtf8();
-    try {
-      registerWifiInfoC(ssidPtr, bssidPtr);
-    } finally {
-      calloc.free(ssidPtr);
-      calloc.free(bssidPtr);
-    }
-  }
-
   FullState? getFullState() {
     final lengthPtr = calloc<ffi.Int32>();
 
@@ -326,5 +308,49 @@ class PneumaCore {
 
   void stopStatePolling() {
     _stateTimer?.cancel();
+  }
+
+  String getMyID() {
+    final ptr = getMyIdC();
+    if (ptr == ffi.nullptr) {
+      return '';
+    }
+    final str = ptr.toDartString();
+    freeMemoryC(ptr.cast());
+    return str;
+  }
+
+  Future<void> startBleDiscovery() async {
+    if (!Platform.isAndroid) {
+      return;
+    }
+    try {
+      // Ждём, пока Go core создаст PeerID. Нода стартует в goroutine — не мгновенно.
+      String peerId = '';
+      for (var i = 0; i < 20; i++) {
+        peerId = getMyID();
+        if (peerId.isNotEmpty) break;
+        await Future.delayed(const Duration(milliseconds: 100));
+      }
+      if (peerId.isNotEmpty) {
+        await _bleChannel.invokeMethod('setPeerId', {'peerId': peerId});
+      }
+      await _bleChannel.invokeMethod('startAdvertising');
+      await _bleChannel.invokeMethod('startScanning');
+    } catch (e) {
+      print('BLE discovery error: $e');
+    }
+  }
+
+  Future<void> stopBleDiscovery() async {
+    if (!Platform.isAndroid) {
+      return;
+    }
+    try {
+      await _bleChannel.invokeMethod('stopScanning');
+      await _bleChannel.invokeMethod('stopAdvertising');
+    } catch (_) {
+      // No-op: permissions or platform channel might be unavailable.
+    }
   }
 }

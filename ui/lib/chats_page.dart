@@ -10,14 +10,13 @@ import 'pneuma_core.dart';
 
 class ChatsFallbackValues {
   static const room = 'main-room';
-  static const wifiNetwork = 'wifi-fallback';
   static const userId = 'user-id-fallback';
 }
 
 class ChatsData {
   static User? user;
   static String currentRoom = ChatsFallbackValues.room;
-  static String wifiNetwork = ChatsFallbackValues.wifiNetwork;
+  static String currentNetwork = '';
 }
 
 class ChatsPage extends StatefulWidget {
@@ -92,6 +91,7 @@ class _ChatsPageState extends State<ChatsPage> {
 
     PneumaCore().stopNode();
     PneumaCore().stopStatePolling();
+    PneumaCore().stopBleDiscovery();
     await Future.delayed(const Duration(milliseconds: 100));
     closeCurrentAccountDatabase();
 
@@ -255,20 +255,10 @@ class _MessageListAreaState extends State<MessageListArea> {
   StreamSubscription<ChatMessage>? _messageSubscription;
   StreamSubscription<FullState?>? _stateSubscription;
   String? _currentRoom;
-  String? _currentWifiNetwork;
+  String? _currentNetwork;
 
   String _resolveStorageNetwork(FullState state) {
-    final wifiNetwork = '${state.wifiBssid}${state.wifiSsid}'.trim();
-    if (wifiNetwork.isNotEmpty) {
-      return wifiNetwork;
-    }
-
-    final protocolNetwork = state.network.trim();
-    if (protocolNetwork.isNotEmpty) {
-      return protocolNetwork;
-    }
-
-    return ChatsFallbackValues.wifiNetwork;
+    return state.network.trim();
   }
 
   bool _isDuplicateMessage(String roomKey, ChatMessage message) {
@@ -291,15 +281,14 @@ class _MessageListAreaState extends State<MessageListArea> {
     final initialState = PneumaCore().getFullState();
     if (initialState != null) {
       _currentRoom = initialState.currentRoom;
-      _currentWifiNetwork = _resolveStorageNetwork(initialState);
+      _currentNetwork = _resolveStorageNetwork(initialState);
     } else {
       _currentRoom = ChatsFallbackValues.room;
-      _currentWifiNetwork = ChatsFallbackValues.wifiNetwork;
+      _currentNetwork = '';
     }
 
     ChatsData.currentRoom = _currentRoom ?? ChatsFallbackValues.room;
-    ChatsData.wifiNetwork =
-        _currentWifiNetwork ?? ChatsFallbackValues.wifiNetwork;
+    ChatsData.currentNetwork = _currentNetwork ?? '';
     _ensureRoomHistoryLoaded();
 
     _messageSubscription = PneumaCore().incomingMessages.listen((
@@ -320,12 +309,12 @@ class _MessageListAreaState extends State<MessageListArea> {
         final nextNetwork = _resolveStorageNetwork(state);
         final nextRoom = state.currentRoom;
 
-        if (_currentRoom != nextRoom || _currentWifiNetwork != nextNetwork) {
+        if (_currentRoom != nextRoom || _currentNetwork != nextNetwork) {
           setState(() {
             _currentRoom = nextRoom;
-            _currentWifiNetwork = nextNetwork;
+            _currentNetwork = nextNetwork;
             ChatsData.currentRoom = nextRoom;
-            ChatsData.wifiNetwork = nextNetwork;
+            ChatsData.currentNetwork = nextNetwork;
           });
           _ensureRoomHistoryLoaded();
         }
@@ -334,7 +323,7 @@ class _MessageListAreaState extends State<MessageListArea> {
   }
 
   String _currentRoomKey() {
-    final network = _currentWifiNetwork ?? ChatsFallbackValues.wifiNetwork;
+    final network = _currentNetwork ?? '';
     final room = _currentRoom ?? ChatsFallbackValues.room;
     return '$network::$room';
   }
@@ -349,7 +338,7 @@ class _MessageListAreaState extends State<MessageListArea> {
 
     final roomKey = _currentRoom ?? ChatsFallbackValues.room;
     final savedMessages = await daos.messagesDao.readLatestMessages(
-      network: _currentWifiNetwork ?? ChatsFallbackValues.wifiNetwork,
+      network: _currentNetwork ?? '',
       room: roomKey,
       limit: 50,
     );
@@ -419,6 +408,8 @@ class ChatInputArea extends StatefulWidget {
 
 class _ChatInputAreaState extends State<ChatInputArea> {
   final TextEditingController _inputController = TextEditingController();
+  final FocusNode _inputFocusNode = FocusNode();
+
   late final Daos daos;
   bool _isSending = false;
 
@@ -459,6 +450,7 @@ class _ChatInputAreaState extends State<ChatInputArea> {
         _isSending = false;
       }
     }
+    _inputFocusNode.requestFocus();
   }
 
   Widget _buildInputField() {
@@ -470,8 +462,10 @@ class _ChatInputAreaState extends State<ChatInputArea> {
       ),
       child: Center(
         child: TextField(
+          autofocus: true,
           controller: _inputController,
           textAlign: .left,
+          focusNode: _inputFocusNode,
           onSubmitted: (value) {
             _sendMessage();
           },

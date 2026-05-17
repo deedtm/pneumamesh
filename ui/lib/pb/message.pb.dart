@@ -179,15 +179,11 @@ class FullState extends $pb.GeneratedMessage {
     User? user,
     $core.String? currentRoom,
     $core.String? network,
-    $core.String? wifiSsid,
-    $core.String? wifiBssid,
   }) {
     final result = create();
     if (user != null) result.user = user;
     if (currentRoom != null) result.currentRoom = currentRoom;
     if (network != null) result.network = network;
-    if (wifiSsid != null) result.wifiSsid = wifiSsid;
-    if (wifiBssid != null) result.wifiBssid = wifiBssid;
     return result;
   }
 
@@ -207,8 +203,6 @@ class FullState extends $pb.GeneratedMessage {
     ..aOM<User>(1, _omitFieldNames ? '' : 'user', subBuilder: User.create)
     ..aOS(2, _omitFieldNames ? '' : 'currentRoom')
     ..aOS(3, _omitFieldNames ? '' : 'network')
-    ..aOS(4, _omitFieldNames ? '' : 'wifiSsid')
-    ..aOS(5, _omitFieldNames ? '' : 'wifiBssid')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -257,24 +251,6 @@ class FullState extends $pb.GeneratedMessage {
   $core.bool hasNetwork() => $_has(2);
   @$pb.TagNumber(3)
   void clearNetwork() => $_clearField(3);
-
-  @$pb.TagNumber(4)
-  $core.String get wifiSsid => $_getSZ(3);
-  @$pb.TagNumber(4)
-  set wifiSsid($core.String value) => $_setString(3, value);
-  @$pb.TagNumber(4)
-  $core.bool hasWifiSsid() => $_has(3);
-  @$pb.TagNumber(4)
-  void clearWifiSsid() => $_clearField(4);
-
-  @$pb.TagNumber(5)
-  $core.String get wifiBssid => $_getSZ(4);
-  @$pb.TagNumber(5)
-  set wifiBssid($core.String value) => $_setString(4, value);
-  @$pb.TagNumber(5)
-  $core.bool hasWifiBssid() => $_has(4);
-  @$pb.TagNumber(5)
-  void clearWifiBssid() => $_clearField(5);
 }
 
 class DiscoveryPacket extends $pb.GeneratedMessage {

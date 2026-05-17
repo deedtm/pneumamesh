@@ -29,4 +29,3 @@ subprojects {
 tasks.register<Delete>("clean") {
     delete(rootProject.layout.buildDirectory)
 }
-// Удален конфликтный блок subprojects в конце файла

@@ -57,6 +57,16 @@ add_subdirectory("runner")
 # them to the application.
 include(flutter/generated_plugins.cmake)
 
+set(PNEUMAMESH_DLL "${CMAKE_CURRENT_SOURCE_DIR}/libs/pneumamesh.dll")
+if(EXISTS "${PNEUMAMESH_DLL}")
+  add_custom_command(
+    TARGET ${BINARY_NAME} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${PNEUMAMESH_DLL}"
+    "$<TARGET_FILE_DIR:${BINARY_NAME}>/pneumamesh.dll"
+  )
+endif()
+
 
 # === Installation ===
 # Support files are copied into place next to the executable, so that it can
@@ -84,6 +94,11 @@ install(FILES "${FLUTTER_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
 if(PLUGIN_BUNDLED_LIBRARIES)
   install(FILES "${PLUGIN_BUNDLED_LIBRARIES}"
     DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
+    COMPONENT Runtime)
+endif()
+
+if(EXISTS "${PNEUMAMESH_DLL}")
+  install(FILES "${PNEUMAMESH_DLL}" DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
     COMPONENT Runtime)
 endif()
 

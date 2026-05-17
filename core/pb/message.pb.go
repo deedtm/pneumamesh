@@ -146,8 +146,6 @@ type FullState struct {
 	User          *User                  `protobuf:"bytes,1,opt,name=user,proto3" json:"user,omitempty"`
 	CurrentRoom   string                 `protobuf:"bytes,2,opt,name=current_room,json=currentRoom,proto3" json:"current_room,omitempty"`
 	Network       string                 `protobuf:"bytes,3,opt,name=network,proto3" json:"network,omitempty"`
-	WifiSsid      string                 `protobuf:"bytes,4,opt,name=wifi_ssid,json=wifiSsid,proto3" json:"wifi_ssid,omitempty"`
-	WifiBssid     string                 `protobuf:"bytes,5,opt,name=wifi_bssid,json=wifiBssid,proto3" json:"wifi_bssid,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -199,20 +197,6 @@ func (x *FullState) GetCurrentRoom() string {
 func (x *FullState) GetNetwork() string {
 	if x != nil {
 		return x.Network
-	}
-	return ""
-}
-
-func (x *FullState) GetWifiSsid() string {
-	if x != nil {
-		return x.WifiSsid
-	}
-	return ""
-}
-
-func (x *FullState) GetWifiBssid() string {
-	if x != nil {
-		return x.WifiBssid
 	}
 	return ""
 }
@@ -289,14 +273,11 @@ const file_pb_message_proto_rawDesc = "" +
 	"\vChatMessage\x12 \n" +
 	"\x06sender\x18\x01 \x01(\v2\b.pb.UserR\x06sender\x12\x12\n" +
 	"\x04text\x18\x02 \x01(\tR\x04text\x12\x1c\n" +
-	"\ttimestamp\x18\x03 \x01(\x03R\ttimestamp\"\xa2\x01\n" +
+	"\ttimestamp\x18\x03 \x01(\x03R\ttimestamp\"f\n" +
 	"\tFullState\x12\x1c\n" +
 	"\x04user\x18\x01 \x01(\v2\b.pb.UserR\x04user\x12!\n" +
 	"\fcurrent_room\x18\x02 \x01(\tR\vcurrentRoom\x12\x18\n" +
-	"\anetwork\x18\x03 \x01(\tR\anetwork\x12\x1b\n" +
-	"\twifi_ssid\x18\x04 \x01(\tR\bwifiSsid\x12\x1d\n" +
-	"\n" +
-	"wifi_bssid\x18\x05 \x01(\tR\twifiBssid\"c\n" +
+	"\anetwork\x18\x03 \x01(\tR\anetwork\"c\n" +
 	"\x0fDiscoveryPacket\x12!\n" +
 	"\fnetwork_name\x18\x01 \x01(\tR\vnetworkName\x12\x17\n" +
 	"\apeer_id\x18\x02 \x01(\tR\x06peerId\x12\x14\n" +

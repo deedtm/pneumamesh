@@ -20,8 +20,6 @@ message FullState {
   User user = 1;
   string current_room = 2;
   string network = 3;
-  string wifi_ssid = 4;
-  string wifi_bssid = 5;
 }
 
 message DiscoveryPacket {
