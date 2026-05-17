@@ -13,43 +13,58 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: '1.25.7'   # <-- соответствие go.mod
+
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.41.5'
-      - name: build native
+
+      - name: Flutter doctor
+        run: flutter doctor -v
+
+      - name: Build native libs
         working-directory: core
         run: |
           go mod tidy
           export CGO_ENABLED=1
           export GOOS=android
+
+          # ARM64
           export GOARCH=arm64
-          export CC=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang
+          export CC=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-clang
           mkdir -p ../ui/android/app/src/main/jniLibs/arm64-v8a
           go build -ldflags="-checklinkname=0" -buildmode=c-shared -o ../ui/android/app/src/main/jniLibs/arm64-v8a/libpneumamesh.so .
-          
+
+          # ARMv7
           export GOARCH=arm
           export GOARM=7
-          export CC=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi24-clang
+          export CC=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi21-clang
           mkdir -p ../ui/android/app/src/main/jniLibs/armeabi-v7a
           go build -ldflags="-checklinkname=0" -buildmode=c-shared -o ../ui/android/app/src/main/jniLibs/armeabi-v7a/libpneumamesh.so .
-      - name: build apks
+
+      - name: Build APKs
         working-directory: ui
         run: |
           flutter pub get
           flutter build apk --release
           cp build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/pneumamesh-${{ github.ref_name }}-universal.apk
-          
+
           flutter build apk --release --split-per-abi
-          
-      - name: rename splits
+
+      - name: Rename splits
         working-directory: ui
         run: |
           mv build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk build/app/outputs/flutter-apk/pneumamesh-${{ github.ref_name }}-arm-v7a.apk
           mv build/app/outputs/flutter-apk/app-arm64-v8a-release.apk build/app/outputs/flutter-apk/pneumamesh-${{ github.ref_name }}-arm64-v8a.apk
-          
+
       - uses: actions/upload-artifact@v4
         with:
           name: android-apks
