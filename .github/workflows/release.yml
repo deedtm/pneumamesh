@@ -55,44 +55,45 @@ jobs:
           name: android-apks
           path: ui/build/app/outputs/flutter-apk/pneumamesh-*.apk
 
-  build-windows:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: '1.22'
-      - uses: subosito/flutter-action@v2
-        with:
-          flutter-version: '3.41.5'
-      - name: build native
-        working-directory: core
-        shell: pwsh
-        run: |
-          go mod tidy
-          $env:CGO_ENABLED="1"
-          $env:GOOS="windows"
-          $env:GOARCH="amd64"
-          $env:CC="gcc"
-          go build -ldflags="-checklinkname=0 -s -w -extldflags '-static -m64'" -buildmode=c-shared -o ../ui/pneumamesh.dll .
-      - name: build app
-        working-directory: ui
-        run: |
-          flutter pub get
-          flutter build windows --release
-      - name: package
-        working-directory: ui
-        shell: pwsh
-        run: |
-          $dir = Get-ChildItem -Path "build/windows" -Recurse -Directory | Where-Object { $_.Name -eq "Release" -and $_.FullName -match "runner" } | Select-Object -First 1
-          Copy-Item -Path "pneumamesh.dll" -Destination $dir.FullName
-          Compress-Archive -Path "$($dir.FullName)\*" -DestinationPath "pneumamesh-${{ github.ref_name }}-windows.zip"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: windows-zip
-          path: ui/pneumamesh-${{ github.ref_name }}-windows.zip
+  # build-windows:
+  #   runs-on: windows-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: actions/setup-go@v5
+  #       with:
+  #         go-version: '1.22'
+  #     - uses: subosito/flutter-action@v2
+  #       with:
+  #         flutter-version: '3.41.5'
+  #     - name: build native
+  #       working-directory: core
+  #       shell: pwsh
+  #       run: |
+  #         go mod tidy
+  #         $env:CGO_ENABLED="1"
+  #         $env:GOOS="windows"
+  #         $env:GOARCH="amd64"
+  #         $env:CC="gcc"
+  #         go build -ldflags="-checklinkname=0 -s -w -extldflags '-static -m64'" -buildmode=c-shared -o ../ui/pneumamesh.dll .
+  #     - name: build app
+  #       working-directory: ui
+  #       run: |
+  #         flutter pub get
+  #         flutter build windows --release
+  #     - name: package
+  #       working-directory: ui
+  #       shell: pwsh
+  #       run: |
+  #         $dir = Get-ChildItem -Path "build/windows" -Recurse -Directory | Where-Object { $_.Name -eq "Release" -and $_.FullName -match "runner" } | Select-Object -First 1
+  #         Copy-Item -Path "pneumamesh.dll" -Destination $dir.FullName
+  #         Compress-Archive -Path "$($dir.FullName)\*" -DestinationPath "pneumamesh-${{ github.ref_name }}-windows.zip"
+  #     - uses: actions/upload-artifact@v4
+  #       with:
+  #         name: windows-zip
+  #         path: ui/pneumamesh-${{ github.ref_name }}-windows.zip
 
   release:
+    # needs: [build-android, build-windows]
     needs: [build-android]
     runs-on: ubuntu-latest
     steps:
