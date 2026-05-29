@@ -173,13 +173,12 @@ func sendToDart(data []byte) {
 //export StopNode
 func StopNode() {
 	if globalChatState != nil {
-		if globalCancel != nil {
-			globalCancel()
-		}
-
 		globalChatState.Sub.Cancel()
 		globalChatState.Topic.Close()
 		globalChatState.Host.Close()
+		if globalCancel != nil {
+			globalCancel()
+		}
 
 		globalChatState = nil
 		localUser = nil

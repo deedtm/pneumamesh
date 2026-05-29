@@ -7,7 +7,9 @@ import 'package:fixnum/fixnum.dart';
 import 'package:flutter/services.dart';
 import 'package:pneumamesh/pb/message.pb.dart';
 
-import 'daos.dart';
+import 'fallback_values.dart';
+import 'hive/storage_manager.dart';
+import 'get_it.dart';
 
 typedef GeneratePrivateKeyNative = ffi.Pointer<Utf8> Function();
 typedef GeneratePrivateKeyDart = ffi.Pointer<Utf8> Function();
@@ -54,7 +56,7 @@ class PneumaCore {
   factory PneumaCore() => _instance;
   PneumaCore._internal();
 
-  Daos? daos;
+  String currentRoom = ChatsFallbackValues.room;
 
   late ffi.DynamicLibrary nativeLib;
   late GeneratePrivateKeyDart generatePrivateKeyC;
@@ -79,10 +81,6 @@ class PneumaCore {
     'com.pneumamesh/broadcaster',
   );
 
-  String _resolveStorageNetwork(FullState state) {
-    return state.network.trim();
-  }
-
   static void _onMessageFromGo(
     ffi.Pointer<ffi.Uint8> dataPtr,
     int length,
@@ -91,35 +89,9 @@ class PneumaCore {
     final message = ChatMessage.fromBuffer(bytes);
 
     final core = PneumaCore();
-    if (core.daos != null) {
-      final existingPeer = await core.daos!.peersDao.findPeerById(
-        message.sender.id,
-      );
-      if (existingPeer == null) {
-        await core.daos!.peersDao.createPeer(
-          peerId: message.sender.id,
-          username: message.sender.name,
-          registerTimestamp: message.sender.registerTimestamp.toInt(),
-          firstSeenTimestamp: DateTime.now().millisecondsSinceEpoch,
-        );
-      }
 
-      final state = core.getFullState();
-      String room = 'main-room';
-      String network = '';
-      if (state != null) {
-        room = state.currentRoom;
-        network = core._resolveStorageNetwork(state);
-      }
-
-      await core.daos!.messagesDao.createMessage(
-        network: network,
-        room: room,
-        peerId: message.sender.id,
-        content: message.text,
-        messageTimestamp: message.timestamp.toInt(),
-      );
-    }
+    final storageManager = getIt<StorageManager>();
+    storageManager.addMessage(core.currentRoom, message);
 
     core._incomingMessagesController.add(message);
     core.freeMemoryC(dataPtr.cast());
@@ -135,12 +107,10 @@ class PneumaCore {
     throw UnsupportedError('This platform is not supported');
   }
 
-  void init({Daos? daos}) {
+  void init() {
     if (_isInitialized) {
       return;
     }
-
-    this.daos = daos;
 
     nativeLib = _openLibrary();
 
@@ -216,38 +186,23 @@ class PneumaCore {
 
   Future<void> sendAndSaveMessage(String text) async {
     final state = getFullState();
-    if (state != null && daos != null) {
+    if (state != null) {
       final currentUser = state.user;
-      final room = state.currentRoom;
-      final network = _resolveStorageNetwork(state);
-
-      final existingPeer = await daos!.peersDao.findPeerById(currentUser.id);
-      if (existingPeer == null) {
-        await daos!.peersDao.createPeer(
-          peerId: currentUser.id,
-          username: currentUser.name,
-          registerTimestamp: currentUser.registerTimestamp.toInt(),
-          firstSeenTimestamp: DateTime.now().millisecondsSinceEpoch,
-        );
-      }
 
       final tsSeconds = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-      await daos!.messagesDao.createMessage(
-        network: network,
-        room: room,
-        peerId: currentUser.id,
-        content: text,
-        messageTimestamp: tsSeconds,
-      );
 
       sendMessage(text);
 
-      final localMsg = ChatMessage(
+      final msg = ChatMessage(
         sender: currentUser,
         text: text,
         timestamp: Int64(tsSeconds),
       );
-      _incomingMessagesController.add(localMsg);
+
+      final storageManager = getIt<StorageManager>();
+      storageManager.addMessage(currentRoom, msg);
+
+      _incomingMessagesController.add(msg);
     } else {
       sendMessage(text);
     }
@@ -257,6 +212,8 @@ class PneumaCore {
     final p = roomName.toNativeUtf8();
     joinRoomC(p);
     calloc.free(p);
+
+    currentRoom = roomName;
   }
 
   void stopNode() {

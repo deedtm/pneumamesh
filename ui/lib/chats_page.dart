@@ -2,16 +2,11 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:pneumamesh/pb/message.pb.dart';
-import 'package:provider/provider.dart';
 
-import 'daos.dart';
-import 'pmdb.dart';
+import 'fallback_values.dart';
+import 'get_it.dart';
+import 'hive/storage_manager.dart';
 import 'pneuma_core.dart';
-
-class ChatsFallbackValues {
-  static const room = 'main-room';
-  static const userId = 'user-id-fallback';
-}
 
 class ChatsData {
   static User? user;
@@ -30,29 +25,14 @@ class ChatsPage extends StatefulWidget {
 
 class _ChatsPageState extends State<ChatsPage> {
   late User user;
-  late final Daos daos;
   bool _isFirstStateReady = false;
   StreamSubscription<FullState?>? _initSubscription;
 
   @override
   void initState() {
     super.initState();
-    daos = context.read<Daos>();
     PneumaCore().startStatePolling();
     _initStateData();
-  }
-
-  Future<void> _checkAndSaveAccountInfo(User currentUser) async {
-    final existingAccount = await daos.accountInfoDao.findAccountByPeerId(
-      currentUser.id,
-    );
-    if (existingAccount == null) {
-      await daos.accountInfoDao.createAccount(
-        peerId: currentUser.id,
-        username: currentUser.name,
-        registerTimestamp: currentUser.registerTimestamp.toInt(),
-      );
-    }
   }
 
   Future<void> _initStateData() async {
@@ -61,14 +41,10 @@ class _ChatsPageState extends State<ChatsPage> {
       user = firstState.user;
       ChatsData.user = user;
       _isFirstStateReady = true;
-      await openAccountDatabase(user.id);
-      await _checkAndSaveAccountInfo(user);
     } else {
       _initSubscription = PneumaCore().stateStream.listen((state) async {
         if (state != null && !_isFirstStateReady) {
           final nextUser = state.user;
-          await openAccountDatabase(nextUser.id);
-          await _checkAndSaveAccountInfo(nextUser);
           setState(() {
             user = nextUser;
             ChatsData.user = user;
@@ -88,16 +64,20 @@ class _ChatsPageState extends State<ChatsPage> {
 
   void _backHandler(bool didPop, Object? result) async {
     if (didPop) return;
-
-    PneumaCore().stopNode();
-    PneumaCore().stopStatePolling();
-    PneumaCore().stopBleDiscovery();
-    await Future.delayed(const Duration(milliseconds: 100));
-    closeCurrentAccountDatabase();
-
     if (mounted) {
       Navigator.of(context).pop();
     }
+  }
+
+  List<Widget> _bodyContent(bool isConnected) {
+    return [
+      const RoomInfoBanner(),
+      isConnected
+          ? MessageListArea(currentUserId: user.id)
+          : const Expanded(child: Center(child: CircularProgressIndicator())),
+      ChatInputArea(enabled: isConnected),
+      if (isConnected) UserIdText(initialUserId: user.id),
+    ];
   }
 
   @override
@@ -116,7 +96,7 @@ class _ChatsPageState extends State<ChatsPage> {
           title: Text(user.name),
           centerTitle: true,
           leading: IconButton(
-            icon: const Icon(Icons.arrow_back),
+            icon: const Icon(Icons.arrow_back_ios_new),
             onPressed: () {
               _backHandler(false, null);
             },
@@ -126,15 +106,15 @@ class _ChatsPageState extends State<ChatsPage> {
           child: Container(
             alignment: Alignment.center,
             width: 670,
-            child: Column(
-              mainAxisAlignment: .center,
-              crossAxisAlignment: .center,
-              children: [
-                const RoomInfoBanner(),
-                MessageListArea(currentUserId: user.id),
-                const ChatInputArea(),
-                UserIdText(initialUserId: user.id),
-              ],
+            child: StreamBuilder<FullState?>(
+              stream: PneumaCore().stateStream,
+              builder: (context, snapshot) {
+                return Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: _bodyContent(snapshot.hasData),
+                );
+              },
             ),
           ),
         ),
@@ -247,7 +227,6 @@ class MessageListArea extends StatefulWidget {
 }
 
 class _MessageListAreaState extends State<MessageListArea> {
-  late final Daos daos;
   final Map<String, List<ChatMessage>> _messages = {};
   final ScrollController _scrollController = ScrollController();
   final Set<String> _loadedRoomKeys = <String>{};
@@ -276,7 +255,6 @@ class _MessageListAreaState extends State<MessageListArea> {
   @override
   void initState() {
     super.initState();
-    daos = context.read<Daos>();
 
     final initialState = PneumaCore().getFullState();
     if (initialState != null) {
@@ -337,11 +315,8 @@ class _MessageListAreaState extends State<MessageListArea> {
     _loadedRoomKeys.add(roomCacheKey);
 
     final roomKey = _currentRoom ?? ChatsFallbackValues.room;
-    final savedMessages = await daos.messagesDao.readLatestMessages(
-      network: _currentNetwork ?? '',
-      room: roomKey,
-      limit: 50,
-    );
+    final storageManager = getIt<StorageManager>();
+    final savedMessages = storageManager.getMessages(roomKey);
 
     if (!mounted) {
       return;
@@ -400,7 +375,8 @@ class _MessageListAreaState extends State<MessageListArea> {
 }
 
 class ChatInputArea extends StatefulWidget {
-  const ChatInputArea({super.key});
+  final bool enabled;
+  const ChatInputArea({super.key, this.enabled = true});
 
   @override
   State<ChatInputArea> createState() => _ChatInputAreaState();
@@ -410,13 +386,11 @@ class _ChatInputAreaState extends State<ChatInputArea> {
   final TextEditingController _inputController = TextEditingController();
   final FocusNode _inputFocusNode = FocusNode();
 
-  late final Daos daos;
   bool _isSending = false;
 
   @override
   void initState() {
     super.initState();
-    daos = context.read<Daos>();
   }
 
   @override
@@ -462,7 +436,8 @@ class _ChatInputAreaState extends State<ChatInputArea> {
       ),
       child: Center(
         child: TextField(
-          autofocus: true,
+          enabled: widget.enabled,
+          autofocus: widget.enabled,
           controller: _inputController,
           textAlign: .left,
           focusNode: _inputFocusNode,
@@ -481,27 +456,12 @@ class _ChatInputAreaState extends State<ChatInputArea> {
     );
   }
 
-  Widget _buildInputAttachmentsButton() {
-    return SizedBox(
-      width: 50,
-      height: 50,
-      child: ElevatedButton(
-        onPressed: _sendMessage,
-        style: ElevatedButton.styleFrom(
-          padding: EdgeInsets.zero,
-          shape: const CircleBorder(),
-        ),
-        child: const Icon(Icons.attach_file),
-      ),
-    );
-  }
-
   Widget _buildInputEnterButton() {
     return SizedBox(
       width: 50,
       height: 50,
       child: ElevatedButton(
-        onPressed: _sendMessage,
+        onPressed: widget.enabled ? _sendMessage : null,
         style: ElevatedButton.styleFrom(
           padding: EdgeInsets.zero,
           shape: const CircleBorder(),
@@ -517,8 +477,6 @@ class _ChatInputAreaState extends State<ChatInputArea> {
       width: 670,
       child: Row(
         children: [
-          _buildInputAttachmentsButton(),
-          const SizedBox(width: 10),
           Expanded(child: _buildInputField()),
           const SizedBox(width: 10),
           _buildInputEnterButton(),

@@ -154,9 +154,14 @@ class MainActivity : FlutterActivity() {
 
             Thread {
                 while (true) {
-                    val socket = l2capServerSocket!!.accept()
-                    Log.i(tag, "L2CAP Server: client connected, socket=$socket")
-                    passSocketToGo(socket, currentPeerId, false)
+                    try {
+                        val socket = l2capServerSocket!!.accept()
+                        Log.i(tag, "L2CAP Server: client connected, socket=$socket")
+                        passSocketToGo(socket, currentPeerId, false)
+                    } catch (e: java.io.IOException) {
+                        Log.i(tag, "L2CAP Server socket closed, stopping accept loop")
+                        break
+                    }
                 }
             }.start()
         }
@@ -188,8 +193,12 @@ class MainActivity : FlutterActivity() {
         } catch (_: SecurityException) {}
         isAdvertising = false
         
+        gattServer?.close()
+        gattServer = null
+
         l2capServerSocket?.close()
         l2capServerSocket = null
+        currentPsm = -1
     }
 
     private val advertiseCallback = object : AdvertiseCallback() {

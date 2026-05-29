@@ -1,5 +1,5 @@
 {
-    "version": "0.3.0",
+    "version": "0.3.5",
     "url": "https://muwa.lol/pneumamesh/downloads/",
-    "changelog": "!! ONLY ANDROID VERSION !! Removed LAN messaging. Added messaging by BLE L2CAP CoC (requires Bluetooth, but not Wi-Fi or the Internet)"
+    "changelog": "!! ONLY ANDROID !! replaced sqflite to hive, improved visuals, fixed logging out crash"
 }

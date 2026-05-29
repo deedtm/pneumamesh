@@ -75,6 +75,9 @@ func (t *InjectTransport) Proxy() bool                    { return false }
 func (t *InjectTransport) Close() error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	if t.closed {
+		return nil
+	}
 	t.closed = true
 	close(t.outbound)
 	close(t.inbound)
@@ -128,6 +131,8 @@ func (l *injectListener) Accept() (transport.CapableConn, error) {
 	return l.t.upgradeConn(context.Background(), item.conn, "", network.DirInbound)
 }
 
-func (l *injectListener) Close() error            { return nil }
+func (l *injectListener) Close() error {
+	return l.t.Close()
+}
 func (l *injectListener) Addr() net.Addr          { return nil }
 func (l *injectListener) Multiaddr() ma.Multiaddr { return l.laddr }

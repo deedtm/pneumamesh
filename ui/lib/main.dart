@@ -1,37 +1,27 @@
-import 'dart:io';
-
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:provider/provider.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-import 'daos.dart';
 import 'login_page.dart';
 import 'pneuma_core.dart';
+import 'get_it.dart';
+import 'hive/storage_manager.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  if (Platform.isWindows || Platform.isLinux) {
-    sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
-  }
+  await requestAppPermissions();
 
-  // Запрашиваем разрешения только для Android и iOS
-  if (Platform.isAndroid || Platform.isIOS) {
-    await requestAppPermissions();
-  }
+  final storageManager = StorageManager();
+  await storageManager.init();
+  getIt.registerSingleton<StorageManager>(storageManager);
 
-  final daos = Daos();
-  PneumaCore().init(daos: daos);
+  PneumaCore().init();
 
-  runApp(Provider<Daos>.value(value: daos, child: const PneumaMeshApp()));
+  runApp(const PneumaMeshApp());
 }
 
 Future<void> requestAppPermissions() async {
-  if (!Platform.isAndroid) return;
-
   final androidInfo = await DeviceInfoPlugin().androidInfo;
   final sdkInt = androidInfo.version.sdkInt;
 
