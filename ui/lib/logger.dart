@@ -8,5 +8,6 @@ final log = Logger(
     lineLength: 80,       // длина разделительных линий
     colors: true,         // врубить цвета в консоли
     printEmojis: true,    // эмодзи для каждого типа лога
+    noBoxingByDefault: true, // не оборачивать в рамку
   ),
 );

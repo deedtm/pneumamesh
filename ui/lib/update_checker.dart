@@ -13,7 +13,7 @@ Future<void> checkForUpdates(BuildContext context) async {
     if (response.statusCode != 200) return;
 
     final data = json.decode(response.body);
-    final String latestVersion = data['version'] ?? '1.0.0';
+    final String latestVersion = data['version'] ?? '0.0.1';
     final String url = data['url'] ?? '';
     final String changelog = data['changelog'] ?? 'New version available.';
 

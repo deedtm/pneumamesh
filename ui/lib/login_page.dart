@@ -1,18 +1,51 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/material.dart';
-import 'package:pneumamesh/chats_page.dart';
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 
-import 'get_it.dart';
+import 'fgtask.dart';
 import 'hive/storage_manager.dart';
-import 'pneuma_core.dart';
+import 'pneumacore.dart';
+import 'sos_service.dart';
+import 'ui_room.dart';
 import 'update_checker.dart';
 
-class LoginPage extends StatefulWidget {
-  const LoginPage({super.key, required this.title});
+Future<void> _initForegroundTask() async {
+  FlutterForegroundTask.init(
+    androidNotificationOptions: AndroidNotificationOptions(
+      channelId: 'foreground_task',
+      channelName: 'Foreground Task',
+      channelDescription: 'PneumaMesh foreground task',
+      onlyAlertOnce: true,
+      channelImportance: NotificationChannelImportance.LOW,
+      priority: NotificationPriority.LOW,
+    ),
+    iosNotificationOptions: const IOSNotificationOptions(),
+    foregroundTaskOptions: ForegroundTaskOptions(
+      eventAction: ForegroundTaskEventAction.repeat(5000),
+      autoRunOnBoot: true,
+      autoRunOnMyPackageReplaced: true,
+      allowWakeLock: true,
+      allowWifiLock: true,
+    ),
+  );
 
-  final String title;
+  final androidInfo = await DeviceInfoPlugin().androidInfo;
+  final sdkInt = androidInfo.version.sdkInt;
+  final notificationText = sdkInt > 33
+      ? '🫸 keeping mesh connection... 🫷'
+      : '🫱 keeping mesh connection... 🫲';
+  await FlutterForegroundTask.startService(
+    callback: startCallback,
+    notificationTitle: 'PneumaMesh is running',
+    notificationText: notificationText,
+  );
+}
+
+class LoginPage extends StatefulWidget {
+  const LoginPage({super.key});
 
   @override
   State<LoginPage> createState() => _LoginPageState();
@@ -21,10 +54,11 @@ class LoginPage extends StatefulWidget {
 class _LoginPageState extends State<LoginPage> {
   final TextEditingController _nameController = TextEditingController();
   var _isCleaningUp = false;
+  var _isLoggingIn = false;
 
-  final List<String> _appBarFrames1 = ['• , •', '- , •', '- , -', '• , -'];
-  final List<String> _appBarFrames2 = ['• , •', '• , -', '- , -', '- , •'];
-  List<String> _appBarFrames = ['• , •'];
+  final List<String> _appBarFrames1 = ['• O •', '- O •', '- O -', '• O -'];
+  final List<String> _appBarFrames2 = ['• O •', '• O -', '- O -', '- O •'];
+  List<String> _appBarFrames = ['• O •'];
   int _appBarAnimationIndex = 0;
 
   Timer? _appBarAnimationTimer;
@@ -35,8 +69,14 @@ class _LoginPageState extends State<LoginPage> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       checkForUpdates(context);
+      if (mounted) {
+        final lastLogin = StorageManager().getLastLogin();
+        if (lastLogin != null) {
+          _nameController.text = lastLogin;
+          _login();
+        }
+      }
     });
-
     _appBarNextFrame();
   }
 
@@ -68,6 +108,7 @@ class _LoginPageState extends State<LoginPage> {
   void dispose() {
     _nameController.dispose();
     _appBarAnimationTimer?.cancel();
+    FlutterForegroundTask.stopService();
     super.dispose();
   }
 
@@ -75,7 +116,9 @@ class _LoginPageState extends State<LoginPage> {
     final username = _nameController.text.trim();
     if (username.isEmpty) return;
 
-    final storageManager = getIt<StorageManager>();
+    setState(() => _isLoggingIn = true);
+
+    final storageManager = StorageManager();
 
     Map? account = storageManager.getAccount(username);
     bool isNewUser = account == null;
@@ -87,36 +130,37 @@ class _LoginPageState extends State<LoginPage> {
       privateKey = account['privateKey'];
     }
 
-    await PneumaCore().startNode(username, privateKey);
+    await PneumaCore().initCore(privateKey, username);
+    await PneumaCore().initUser();
     await PneumaCore().startBleDiscovery();
 
-    String userId = PneumaCore().getMyID();
-    storageManager.addAccount(username, privateKey, userId);
-    storageManager.setSession(userId);
+    String userId = PneumaCore().user.id;
+    await storageManager.addAccount(username, privateKey, userId);
+    await storageManager.setSession(userId);
+    await storageManager.setLastLogin(username);
+
+    List<UiRoom> savedRooms = storageManager.getAllRooms();
+    await PneumaCore().initRooms(savedRooms);
+
+    SosService().init();
+
+    await _initForegroundTask();
 
     if (mounted) {
-      final route = MaterialPageRoute(
-        builder: (context) => ChatsPage(username: username),
-      );
-
-      Navigator.push(context, route).then((_) async {
+      Navigator.pushNamed(context, '/rooms').then((_) async {
+        _isLoggingIn = false;
         setState(() => _isCleaningUp = true);
 
-        PneumaCore().stopNode();
-        PneumaCore().stopStatePolling();
-        PneumaCore().stopBleDiscovery();
+        await FlutterForegroundTask.stopService();
 
-        await Future.delayed(const Duration(seconds: 1));
+        PneumaCore().stopAll();
+        SosService().dispose();
+        await StorageManager().closeUserSession();
 
-        getIt<StorageManager>().closeUserSession();
+        await Future.delayed(const Duration(milliseconds: 1500));
         setState(() => _isCleaningUp = false);
       });
     }
-  }
-
-  void _loginAsMuwa() async {
-    _nameController.text = 'muwa';
-    _login();
   }
 
   Widget _usernameField() {
@@ -147,17 +191,6 @@ class _LoginPageState extends State<LoginPage> {
           ),
         ),
       ),
-    );
-  }
-
-  Widget _loginAsMuwaButton() {
-    return ElevatedButton.icon(
-      onPressed: _loginAsMuwa,
-      style: ButtonStyle(
-        padding: WidgetStatePropertyAll(EdgeInsetsGeometry.all(20)),
-      ),
-      icon: Icon(Icons.accessible_forward),
-      label: Text("muwa"),
     );
   }
 
@@ -192,8 +225,7 @@ class _LoginPageState extends State<LoginPage> {
           ),
           SizedBox(height: 30),
           _usernameField(),
-          // _loginAsMuwaButton(),
-          _isCleaningUp
+          (_isCleaningUp || _isLoggingIn)
               ? Center(child: CircularProgressIndicator())
               : _loginButton(),
         ],

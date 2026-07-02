@@ -1,4 +1,4 @@
-module pneumamesh-core
+module pneumacore
 
 go 1.25.7
 

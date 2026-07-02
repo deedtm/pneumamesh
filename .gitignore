@@ -124,3 +124,5 @@ generate_proto.bat
 website/
 
 AGENTS.md
+
+__SimpleMainActivity.kt

@@ -1,0 +1,47 @@
+syntax = "proto3";
+
+package pneumacore;
+option go_package = "./pneumacore";
+
+message Room {
+    string id = 1;
+    string name = 2;
+}
+
+enum DiscoveryPacketType {
+  UNSPECIFIED = 0;
+  ACTIVE = 1; // ядро почистило неактивные комнаты и прислало оставшиеся (активные)
+  SHARE = 2;  // другой пир прислал свои комнаты
+}
+
+message DiscoveryPacket {
+    DiscoveryPacketType type = 1;
+    int64 timestamp = 2;
+    repeated Room rooms = 3;
+}
+
+message User {
+  string id = 1;
+  string name = 2;
+}
+
+message MessagePacket {
+  User sender = 1;
+  Room room = 2;
+  string text = 3;
+  int64 timestamp = 4;
+}
+
+message PositionInfo {
+  double latitude = 1;
+  double longitude = 2;
+  double altitude = 3;
+  double speed = 4;
+  double accuracy = 5;
+  int64 timestamp = 6;
+}
+
+message SosPacket {
+  User sender = 1;
+  PositionInfo position = 2;
+}

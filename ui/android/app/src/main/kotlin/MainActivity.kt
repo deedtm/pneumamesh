@@ -14,11 +14,6 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.util.*
 
-//   1. Кричим в эфир через BLE Advertise ("я тут").
-//   2. Слушаем эфир через BLE Scan ("кто тут").
-//   3. Держим GATT Server ("визитницу") с PSM и PeerID.
-//   4. Когда находим пира — читаем его визитку через GATT Client.
-
 class MainActivity : FlutterActivity() {
 
     companion object {
@@ -30,10 +25,11 @@ class MainActivity : FlutterActivity() {
     private val tag = "PNEUMAMESH"
     private val channel = "com.pneumamesh/broadcaster"
 
-    private val serviceUuid = ParcelUuid(UUID.fromString("8a4a0d78-92b4-4a30-b4f8-f1f7bba718ee"))
-    private val gattServiceUuid = UUID.fromString("8a4a0d78-92b4-4a30-b4f8-f1f7bba718ee")
-    private val psmCharUuid = UUID.fromString("8a4a0d78-92b4-4a30-b4f8-f1f7bba718ef")
-    private val peerIdCharUuid = UUID.fromString("8a4a0d78-92b4-4a30-b4f8-f1f7bba718f0")
+    // b7ef3a3e-54 = bnefmame-sh = pneumamesh
+    private val serviceUuid = ParcelUuid(UUID.fromString("b7ef3a3e-5400-4444-bbbb-000000000001"))
+    private val gattServiceUuid = UUID.fromString("b7ef3a3e-5400-4444-bbbb-000000000002")
+    private val psmCharUuid = UUID.fromString("b7ef3a3e-5400-4444-bbbb-000000000003")
+    private val peerIdCharUuid = UUID.fromString("b7ef3a3e-5400-4444-bbbb-000000000004")
 
     private lateinit var bluetoothManager: BluetoothManager
     private var advertiser: BluetoothLeAdvertiser? = null
@@ -51,6 +47,8 @@ class MainActivity : FlutterActivity() {
 
     private var isAdvertising = false
     private var isScanning = false
+    private var isGattReady = false
+    private var pendingAdvertising = false
 
     private external fun passBridgePortToGo(port: Int, peerId: String, outbound: Boolean)
 
@@ -94,32 +92,194 @@ class MainActivity : FlutterActivity() {
             }
     }
 
-    // Открываем TCP-прокси и шлем его порт в Go для дальнейшей организации транспорта 
-    private fun passSocketToGo(socket: BluetoothSocket, peerId: String, outbound: Boolean) {
-        try {
-            activeSockets.add(socket)
+    // GATT Server - инфа про текущего юзера: peerId, psm
+    @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
+    private fun startGattServer() {
+        if (gattServer != null) return
 
-            val serverSocket = java.net.ServerSocket(0)
-            val port = serverSocket.localPort
+        isGattReady = false
+        gattServer = bluetoothManager.openGattServer(this, object : BluetoothGattServerCallback() {
+            override fun onServiceAdded(status: Int, service: BluetoothGattService?) {
+                if (service?.uuid != gattServiceUuid) return
 
-            Thread {
-                val clientSocket = serverSocket.accept()
-                Thread {
-                    try { socket.inputStream.copyTo(clientSocket.outputStream) } catch (_: Exception) {}
-                    try { clientSocket.shutdownOutput() } catch (_: Exception) {}
-                }.start()
-                Thread {
-                    try { clientSocket.inputStream.copyTo(socket.outputStream) } catch (_: Exception) {}
-                }.start()
-            }.start()
+                if (status == BluetoothGatt.GATT_SUCCESS) {
+                    Log.i(tag, "GATT Server: service added successfully")
+                    isGattReady = true
 
-            passBridgePortToGo(port, peerId, outbound)
-            Log.i(tag, "Bridge started: port=$port, peerId=$peerId, outbound=$outbound")
-        } catch (e: Exception) {
-            Log.e(tag, "Bridge setup failed: ${e.message}")
-        }
+                    if (pendingAdvertising) {
+                        pendingAdvertising = false
+                        beginAdvertising()
+                    }
+                } else {
+                    Log.e(tag, "GATT Server: service add failed with status=$status")
+                    isGattReady = false
+                    pendingAdvertising = false
+                }
+            }
+
+            override fun onConnectionStateChange(device: BluetoothDevice, status: Int, newState: Int) {
+                if (newState == BluetoothProfile.STATE_CONNECTED) {
+                    Log.i(tag, "GATT Server: client connected ${device.address}")
+                } else {
+                    Log.i(tag, "GATT Server: client disconnected ${device.address}")
+                }
+            }
+
+            @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
+            override fun onCharacteristicReadRequest(
+                device: BluetoothDevice?,
+                requestId: Int,
+                offset: Int,
+                characteristic: BluetoothGattCharacteristic?
+            ) {
+                val uuid = characteristic?.uuid
+                val fullValue = when (uuid) {
+                    psmCharUuid -> currentPsm.toString().toByteArray()
+                    peerIdCharUuid -> currentPeerId.toByteArray()
+                    else -> ByteArray(0)
+                }
+                val value = if (offset in fullValue.indices) {
+                    fullValue.copyOfRange(offset, fullValue.size)
+                } else {
+                    ByteArray(0)
+                }
+                gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, value)
+            }
+        })
+
+        val service = BluetoothGattService(
+            gattServiceUuid,
+            BluetoothGattService.SERVICE_TYPE_PRIMARY
+        )
+
+        val psmChar = BluetoothGattCharacteristic(
+            psmCharUuid,
+            BluetoothGattCharacteristic.PROPERTY_READ,
+            BluetoothGattCharacteristic.PERMISSION_READ
+        )
+        val peerIdChar = BluetoothGattCharacteristic(
+            peerIdCharUuid,
+            BluetoothGattCharacteristic.PROPERTY_READ,
+            BluetoothGattCharacteristic.PERMISSION_READ
+        )
+
+        service.addCharacteristic(psmChar)
+        service.addCharacteristic(peerIdChar)
+        gattServer?.addService(service)
+
+        Log.i(tag, "GATT Server: addService requested")
     }
 
+    // GATT Client - инфа другого юзера
+    @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
+    private fun fetchPeerMeta(device: BluetoothDevice) {
+        var tempPsm: Int? = null
+
+        device.connectGatt(this, false, object : BluetoothGattCallback() {
+            @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
+            override fun onConnectionStateChange(gatt: BluetoothGatt?, status: Int, newState: Int) {
+                if (newState == BluetoothProfile.STATE_CONNECTED) {
+                    Log.i(tag, "GATT Client: connected to ${device.address}")
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                        // запрашиваем максимальный MTU, дабы избежать фрагментации данных
+                        gatt?.requestMtu(517)
+                    } else {
+                        gatt?.discoverServices()
+                    }
+                } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
+                    Log.i(tag, "GATT Client: disconnected from ${device.address}")
+                }
+            }
+
+            @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
+            override fun onMtuChanged(gatt: BluetoothGatt?, mtu: Int, status: Int) {
+                Log.i(tag, "GATT Client: MTU changed to $mtu (status=$status) for ${device.address}")
+                gatt?.discoverServices()
+            }
+
+            @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
+            override fun onServicesDiscovered(gatt: BluetoothGatt?, status: Int) {
+                if (status != BluetoothGatt.GATT_SUCCESS) {
+                    Log.e(tag, "GATT Client: service discovery failed")
+                    gatt?.close()
+                    return
+                }
+                val service = gatt?.getService(gattServiceUuid)
+                if (service == null) {
+                    Log.w(tag, "GATT Client: service not found on ${device.address} | ${status} | ${gatt} ")
+                    gatt?.close()
+                    return
+                }
+                val psmChar = service.getCharacteristic(psmCharUuid)
+                gatt.readCharacteristic(psmChar)
+            }
+
+            @Suppress("DEPRECATION")
+            @RequiresApi(Build.VERSION_CODES.Q)
+            @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
+            @Deprecated("Deprecated in Java")
+            override fun onCharacteristicRead(
+                gatt: BluetoothGatt?,
+                characteristic: BluetoothGattCharacteristic?,
+                status: Int
+            ) {
+                if (status != BluetoothGatt.GATT_SUCCESS) {
+                    gatt?.close()
+                    return
+                }
+
+                when (characteristic?.uuid) {
+                    psmCharUuid -> {
+                        val psmStr = characteristic!!.value?.toString(Charsets.UTF_8)
+                        tempPsm = psmStr?.toIntOrNull()
+                        Log.i(tag, "GATT Client: read PSM=$tempPsm from ${device.address}")
+                        
+                        val service = gatt?.getService(gattServiceUuid)
+                        val peerIdChar = service?.getCharacteristic(peerIdCharUuid)
+                        gatt?.readCharacteristic(peerIdChar)
+                    }
+                    peerIdCharUuid -> {
+                        val rawBytes = characteristic!!.value ?: ByteArray(0)
+                        
+                        val trimmed = rawBytes.dropLastWhile { it == 0.toByte() }.toByteArray()
+                        val peerId = trimmed.toString(Charsets.UTF_8)
+
+                        if (peerId.isEmpty()) {
+                            Log.w(tag, "Got empty peerId")
+                            gatt?.close()
+                            return
+                        }
+
+                        if (currentPeerId > peerId) {
+                            Log.i(tag, "Arbitration: I am SERVER for ${device.address}")
+                            gatt?.let { activeGatts.add(it) }
+                            return
+                        } else {
+                            Log.i(tag, "Arbitration: I am CLIENT for ${device.address}. Trying to connect to the GATT server...")
+
+                            val psm = tempPsm ?: run {
+                                Log.w(tag, "PSM is null, cannot connect L2CAP")
+                                gatt?.close()
+                                return
+                            }
+
+                            gatt?.let { activeGatts.add(it) }
+
+                            val socket = device.createInsecureL2capChannel(psm)
+                            try {
+                                socket.connect()
+                                Log.i(tag, "L2CAP Client: connected to ${device.address}")
+                                passSocketToGo(socket, peerId, true)
+                            } catch (e: Exception) {
+                                Log.e(tag, "L2CAP Client connect failed: ${e.message}")
+                            }
+                        }
+                    }
+                }
+            }
+        })
+    }
+    
     // ============================================================================
     // BLE Advertise
     // ============================================================================
@@ -134,17 +294,23 @@ class MainActivity : FlutterActivity() {
             Log.e(tag, "Bluetooth is DISABLED. Cannot advertise.")
             return
         }
-        if (currentPsm == -1) {
+        if (!isGattReady) {
+            pendingAdvertising = true
             startGattServer()
-
+            return
+        }
+        beginAdvertising()
+    }
+    @RequiresApi(Build.VERSION_CODES.Q)
+    @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
+    private fun beginAdvertising() {
+        if (currentPsm == -1) {
             l2capServerSocket = bluetoothManager.adapter.listenUsingInsecureL2capChannel()
 
             val psm: Int = try {
-                // Android 14+ (API 34+)
                 val method = BluetoothServerSocket::class.java.getMethod("getPsm")
                 method.invoke(l2capServerSocket) as Int
             } catch (e: NoSuchMethodException) {
-                // Android 10–13
                 val psmField = BluetoothServerSocket::class.java.getDeclaredField("mPsm")
                 psmField.isAccessible = true
                 psmField.get(l2capServerSocket) as Int
@@ -166,8 +332,6 @@ class MainActivity : FlutterActivity() {
             }.start()
         }
 
-        Log.i(tag, "startAdvertising()")
-
         val settings = AdvertiseSettings.Builder()
             .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
             .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_HIGH)
@@ -188,17 +352,23 @@ class MainActivity : FlutterActivity() {
 
     private fun stopAdvertising() {
         Log.i(tag, "stopAdvertising()")
+        pendingAdvertising = false
+        isGattReady = false
+
         try {
             advertiser?.stopAdvertising(advertiseCallback)
         } catch (_: SecurityException) {}
         isAdvertising = false
-        
+
         gattServer?.close()
         gattServer = null
 
         l2capServerSocket?.close()
         l2capServerSocket = null
         currentPsm = -1
+
+        activeSockets.forEach { runCatching { it.close() } }
+        activeSockets.clear()
     }
 
     private val advertiseCallback = object : AdvertiseCallback() {
@@ -259,23 +429,22 @@ class MainActivity : FlutterActivity() {
             scanner?.stopScan(scanCallback)
         } catch (_: SecurityException) {}
         isScanning = false
-        
-        activeGatts.forEach { it.close() }
+
+        activeGatts.forEach { runCatching { it.close() } }
         activeGatts.clear()
+
+        activeSockets.forEach { runCatching { it.close() } }
+        activeSockets.clear()
     }
 
     private val scanCallback = object : ScanCallback() {
         @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
         override fun onScanResult(callbackType: Int, result: ScanResult) {
-            val mac = result.device.address
-            val rssi = result.rssi
-            val uuids = result.scanRecord?.serviceUuids?.toString() ?: "none"
-
             val hasOurService = result.scanRecord?.serviceUuids?.contains(serviceUuid) == true
             if (!hasOurService) return
 
-            // Логируем все устройства в радиусе
-            // Log.d(tag, "Scan raw: $mac RSSI=$rssi UUIDs=$uuids")
+            val mac = result.device.address
+            val rssi = result.rssi
 
             if (seenDevices.add(mac)) {
                 Log.i(tag, "New peer found: $mac, RSSI=$rssi")
@@ -293,181 +462,29 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    // ============================================================================
-    // GATT Server — визитница. Хранит PSM и PeerID.
-    // ============================================================================
-    @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
-    private fun startGattServer() {
-        val callback = object : BluetoothGattServerCallback() {
-            override fun onConnectionStateChange(device: BluetoothDevice, status: Int, newState: Int) {
-                if (newState == BluetoothProfile.STATE_CONNECTED) {
-                    Log.i(tag, "GATT Server: client connected ${device.address}")
-                } else {
-                    Log.i(tag, "GATT Server: client disconnected ${device.address}")
-                }
-            }
+    // Открываем TCP-прокси и шлем его порт в Go для дальнейшей организации транспорта 
+    private fun passSocketToGo(socket: BluetoothSocket, peerId: String, outbound: Boolean) {
+        try {
+            activeSockets.add(socket)
 
-            @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
-            override fun onCharacteristicReadRequest(
-                device: BluetoothDevice?,
-                requestId: Int,
-                offset: Int,
-                characteristic: BluetoothGattCharacteristic?
-            ) {
-                val uuid = characteristic?.uuid
-                val fullValue = when (uuid) {
-                    psmCharUuid -> currentPsm.toString().toByteArray()
-                    peerIdCharUuid -> currentPeerId.toByteArray()
-                    else -> ByteArray(0)
-                }
-                val value = if (offset in fullValue.indices) {
-                    fullValue.copyOfRange(offset, fullValue.size)
-                } else {
-                    ByteArray(0)
-                }
-                gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, value)
-                // Log.i(tag, "GATT Server: sent $uuid = ${fullValue.toString(Charsets.UTF_8)} (offset=$offset, len=${value.size})")
-            }
+            val serverSocket = java.net.ServerSocket(0)
+            val port = serverSocket.localPort
+
+            Thread {
+                val clientSocket = serverSocket.accept()
+                Thread {
+                    try { socket.inputStream.copyTo(clientSocket.outputStream) } catch (_: Exception) {}
+                    try { clientSocket.shutdownOutput() } catch (_: Exception) {}
+                }.start()
+                Thread {
+                    try { clientSocket.inputStream.copyTo(socket.outputStream) } catch (_: Exception) {}
+                }.start()
+            }.start()
+
+            passBridgePortToGo(port, peerId, outbound)
+            Log.i(tag, "Bridge started: port=$port, peerId=$peerId, outbound=$outbound")
+        } catch (e: Exception) {
+            Log.e(tag, "Bridge setup failed: ${e.message}")
         }
-
-        gattServer = bluetoothManager.openGattServer(this, callback)
-
-        val service = BluetoothGattService(
-            gattServiceUuid,
-            BluetoothGattService.SERVICE_TYPE_PRIMARY
-        )
-
-        val psmChar = BluetoothGattCharacteristic(
-            psmCharUuid,
-            BluetoothGattCharacteristic.PROPERTY_READ,
-            BluetoothGattCharacteristic.PERMISSION_READ
-        )
-        val peerIdChar = BluetoothGattCharacteristic(
-            peerIdCharUuid,
-            BluetoothGattCharacteristic.PROPERTY_READ,
-            BluetoothGattCharacteristic.PERMISSION_READ
-        )
-
-        service.addCharacteristic(psmChar)
-        service.addCharacteristic(peerIdChar)
-        gattServer?.addService(service)
-
-        Log.i(tag, "GATT Server started")
-    }
-
-    // ============================================================================
-    // GATT Client — читаем визитку другого телефона.
-    // ============================================================================
-    @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
-    private fun fetchPeerMeta(device: BluetoothDevice) {
-        var tempPsm: Int? = null
-
-        val gatt = device.connectGatt(this, false, object : BluetoothGattCallback() {
-            @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
-            override fun onConnectionStateChange(gatt: BluetoothGatt?, status: Int, newState: Int) {
-                if (newState == BluetoothProfile.STATE_CONNECTED) {
-                    Log.i(tag, "GATT Client: connected to ${device.address}")
-                    // Request larger MTU to avoid long-read fragmentation.
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                        gatt?.requestMtu(517)
-                    } else {
-                        gatt?.discoverServices()
-                    }
-                } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
-                    Log.i(tag, "GATT Client: disconnected from ${device.address}")
-                }
-            }
-
-            @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
-            override fun onMtuChanged(gatt: BluetoothGatt?, mtu: Int, status: Int) {
-                Log.i(tag, "GATT Client: MTU changed to $mtu (status=$status) for ${device.address}")
-                gatt?.discoverServices()
-            }
-
-            @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
-            override fun onServicesDiscovered(gatt: BluetoothGatt?, status: Int) {
-                if (status != BluetoothGatt.GATT_SUCCESS) {
-                    Log.e(tag, "GATT Client: service discovery failed")
-                    gatt?.close()
-                    return
-                }
-                val service = gatt?.getService(gattServiceUuid)
-                if (service == null) {
-                    Log.w(tag, "GATT Client: service not found on ${device.address}")
-                    gatt?.close()
-                    return
-                }
-                val psmChar = service.getCharacteristic(psmCharUuid)
-                gatt.readCharacteristic(psmChar)
-            }
-
-            @Suppress("DEPRECATION")
-            @RequiresApi(Build.VERSION_CODES.Q)
-            @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
-            @Deprecated("Deprecated in Java")
-            override fun onCharacteristicRead(
-                gatt: BluetoothGatt?,
-                characteristic: BluetoothGattCharacteristic?,
-                status: Int
-            ) {
-                if (status != BluetoothGatt.GATT_SUCCESS) {
-                    gatt?.close()
-                    return
-                }
-
-                when (characteristic?.uuid) {
-                    psmCharUuid -> {
-//                        val psmStr = gatt?.readCharacteristic(characteristic)?.toString() // characteristic.value?.toString(Charsets.UTF_8)
-                        val psmStr = characteristic.value?.toString(Charsets.UTF_8)
-                        tempPsm = psmStr?.toIntOrNull()
-                        Log.i(tag, "GATT Client: read PSM=$tempPsm from ${device.address}")
-                        val service = gatt?.getService(gattServiceUuid)
-                        val peerIdChar = service?.getCharacteristic(peerIdCharUuid)
-                        gatt?.readCharacteristic(peerIdChar)
-                    }
-                    peerIdCharUuid -> {
-//                        val peerId = gatt?.readCharacteristic(characteristic)?.toString() ?: ""
-                        val rawBytes = characteristic.value ?: ByteArray(0)
-                        // Trim trailing nulls that some BLE stacks return.
-                        val trimmed = rawBytes.dropLastWhile { it == 0.toByte() }.toByteArray()
-                        val peerId = trimmed.toString(Charsets.UTF_8)
-
-                        if (peerId.isEmpty()) {
-                            Log.w(tag, "Got empty peerId")
-                            gatt?.close()
-                            return
-                        }
-
-                        if (currentPeerId > peerId) {
-                            // Мы server. Не закрываем GATT — ACL link должен остаться для L2CAP.
-                            Log.i(tag, "Arbitration: I am SERVER for ${device.address}")
-                            gatt?.let { activeGatts.add(it) }
-                            return
-                        } else {
-                            // Мы client. Открываем L2CAP client connection.
-                            Log.i(tag, "Arbitration: I am CLIENT for ${device.address}")
-
-                            val psm = tempPsm ?: run {
-                                Log.w(tag, "PSM is null, cannot connect L2CAP")
-                                gatt?.close()
-                                return
-                            }
-
-                            gatt?.let { activeGatts.add(it) }
-
-                            // L2CAP Client connect.
-                            val socket = device.createInsecureL2capChannel(psm)
-                            try {
-                                socket.connect()
-                                Log.i(tag, "L2CAP Client: connected to ${device.address}")
-                                passSocketToGo(socket, peerId, true)
-                            } catch (e: Exception) {
-                                Log.e(tag, "L2CAP Client connect failed: ${e.message}")
-                            }
-                        }
-                    }
-                }
-            }
-        })
     }
 }

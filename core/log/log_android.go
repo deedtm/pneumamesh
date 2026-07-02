@@ -1,12 +1,12 @@
 //go:build android
 // +build android
 
-package main
+package log
 
 /*
 #include <stdlib.h>
 #include <android/log.h>
-#define LOG_TAG "PNEUMAMESH_GO"
+#define LOG_TAG "PNEUMACORE"
 static void log_info(const char* msg) {
     __android_log_write(ANDROID_LOG_INFO, LOG_TAG, msg);
 }
@@ -21,13 +21,13 @@ import (
 	"unsafe"
 )
 
-func logInfo(format string, args ...interface{}) {
+func Info(format string, args ...interface{}) {
 	msg := C.CString(fmt.Sprintf(format, args...))
 	C.log_info(msg)
 	C.free(unsafe.Pointer(msg))
 }
 
-func logError(format string, args ...interface{}) {
+func Error(format string, args ...interface{}) {
 	msg := C.CString(fmt.Sprintf(format, args...))
 	C.log_error(msg)
 	C.free(unsafe.Pointer(msg))
