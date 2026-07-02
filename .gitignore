@@ -29,7 +29,6 @@ node_modules/
 .flutter-plugins-dependencies
 .pub-cache/
 .pub/
-pubspec.lock
 
 .vscode/
 .idea/
