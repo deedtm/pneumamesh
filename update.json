@@ -1,5 +1,5 @@
 {
-    "version": "0.3.5",
+    "version": "1.0.0",
     "url": "https://muwa.lol/pneumamesh/downloads/",
-    "changelog": "!! ONLY ANDROID !! replaced sqflite to hive, improved visuals, fixed logging out crash"
+    "changelog": "[+] Rooms Page.\nHere you can join one of the available rooms or create your own. You can also send an SOS signal or go to the recent SOS signals page.\nAll rooms, except the 'main-room', disappear after 5 minutes of inactivity (when no one has posted there). All users share their rooms with others (but without message history).\n[+] SOS Mode and Recent SOS Page.\nOn the Rooms page, you can enable SOS mode by clicking the bottom left button. While in SOS mode, your geolocation is sent to nearby users every 30 seconds. Users will also receive a notification about a new SOS signal on their devices, and on the Recent SOS page, they can see your coordinates, speed, and current movement. They can also navigate to your location by following the arrow pointing to your geolocation.\nWhen SOS mode is disabled, users will no longer receive new signals, and the old signal will be deleted after 5 minutes.\n[+] Notifications.\nStandard notifications for new messages in rooms, as well as new SOS signals."
 }
