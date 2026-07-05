@@ -103,6 +103,9 @@ typedef CreateRoomDart =
       ffi.Pointer<ffi.Int32> outLength,
     );
 
+typedef RemoveRoomNative = ffi.Void Function(ffi.Pointer<Utf8> roomId);
+typedef RemoveRoomDart = void Function(ffi.Pointer<Utf8> roomId);
+
 typedef BlockRoomNative = ffi.Void Function(ffi.Pointer<Utf8> roomId);
 typedef BlockRoomDart = void Function(ffi.Pointer<Utf8> roomId);
 
@@ -150,6 +153,7 @@ class PneumaCore {
 
   late ImportRoomDart importRoomC;
   late CreateRoomDart createRoomC;
+  late RemoveRoomDart removeRoomC;
   late BlockRoomDart blockRoomC;
   late UnblockRoomDart unblockRoomC;
 
@@ -231,14 +235,16 @@ class PneumaCore {
 
     final core = PneumaCore();
 
-    final storageManager = StorageManager();
-    await storageManager.addMessage(packet.room.id, packet);
+    await StorageManager().addMessage(packet.room.id, packet);
 
     if (core.toUpdateLastMessage != null) {
       core.toUpdateLastMessage!(packet.room.id, packet);
     }
 
-    if (packet.room.id != core.currentRoom?.room.id &&
+    final uiRoom = core.rooms.firstWhere((r) => packet.room.id == r.room.id);
+
+    if (!uiRoom.isMuted &&
+        packet.room.id != core.currentRoom?.room.id &&
         packet.sender.id != core.user.id) {
       await NotificationService().messageNotification(
         roomId: packet.room.id,
@@ -340,6 +346,9 @@ class PneumaCore {
     createRoomC = nativeLib
         .lookup<ffi.NativeFunction<CreateRoomNative>>('CreateRoom')
         .asFunction<CreateRoomDart>();
+    removeRoomC = nativeLib
+        .lookup<ffi.NativeFunction<RemoveRoomNative>>('RemoveRoom')
+        .asFunction<RemoveRoomDart>();
     blockRoomC = nativeLib
         .lookup<ffi.NativeFunction<BlockRoomNative>>('BlockRoom')
         .asFunction<BlockRoomDart>();
@@ -482,6 +491,16 @@ class PneumaCore {
       return room;
     } finally {
       calloc.free(lengthPtr);
+    }
+  }
+
+  void removeRoom(String roomId) {
+    final idPtr = roomId.toNativeUtf8();
+
+    try {
+      removeRoomC(idPtr);
+    } finally {
+      calloc.free(idPtr);
     }
   }
 

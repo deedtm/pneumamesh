@@ -52,6 +52,15 @@ func (pc *PneumaCore) GetRoom(id string) *Room {
 	return pc.rooms[id]
 }
 
+func (pc *PneumaCore) RemoveRoom(id string) {
+	pc.Lock()
+	defer pc.Unlock()
+	room := *pc.rooms[id]
+	pc.rooms[id].Topic.Close()
+	delete(pc.rooms, id)
+	log.Info("Removed room: %v", room)
+}
+
 // установить инстанс топика комнаты
 func (pc *PneumaCore) SetTopic(id string, topic *pubsub.Topic) {
 	pc.Lock()
@@ -150,7 +159,7 @@ func (pc *PneumaCore) startInactiveRoomsTicker() {
 			}
 			pc.SendDiscoveryToUi(data)
 
-			log.Info("Sent active discovery packet to ui: %v", packet)
+			log.Info("Sent discovery packet to ui: %v", packet)
 		}
 	}
 }

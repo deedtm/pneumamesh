@@ -209,6 +209,12 @@ func CreateRoom(cRoomName *C.char, outLength *C.int) *C.uint8_t {
 	return (*C.uint8_t)(C.CBytes(data))
 }
 
+//export RemoveRoom
+func RemoveRoom(cRoomId *C.char) {
+	roomId := C.GoString(cRoomId)
+	gCore.RemoveRoom(roomId)
+}
+
 //export BlockRoom
 func BlockRoom(cRoomId *C.char) {
 	if gCore == nil {

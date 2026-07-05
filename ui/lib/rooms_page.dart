@@ -161,29 +161,24 @@ class _RoomsPageState extends State<RoomsPage> {
     Text title;
     Text subtitle;
 
-    if (!room.isMuted) {
-      title = Text(
-        room.room.name,
+    List<InlineSpan> titleChildren = [
+      TextSpan(
+        text: room.room.name,
         style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20.0),
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-      );
-    } else {
-      title = Text.rich(
-        TextSpan(
-          children: [
-            WidgetSpan(child: Icon(Icons.volume_off, size: 20.0)),
-            WidgetSpan(child: SizedBox(width: 5.0)),
-            TextSpan(
-              text: room.room.name,
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20.0),
-            ),
-          ],
-        ),
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
+      ),
+    ];
+    if (room.isMuted) {
+      titleChildren.insert(0, WidgetSpan(child: SizedBox(width: 5.0)));
+      titleChildren.insert(
+        0,
+        WidgetSpan(child: Icon(Icons.volume_off, size: 20.0)),
       );
     }
+    title = Text.rich(
+      TextSpan(children: titleChildren),
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+    );
 
     if (room.lastMessage == null) {
       subtitle = Text(
@@ -222,11 +217,15 @@ class _RoomsPageState extends State<RoomsPage> {
         ? null
         : CircleAvatar(
             radius: 12.0,
-            backgroundColor: Theme.of(context).colorScheme.primary,
+            backgroundColor: room.isMuted
+                ? Colors.grey.withAlpha(150)
+                : Theme.of(context).colorScheme.primary,
             child: Text(
               room.unreadCount.toString(),
               style: TextStyle(
-                color: Theme.of(context).colorScheme.onPrimary,
+                color: room.isMuted
+                    ? Colors.white
+                    : Theme.of(context).colorScheme.onPrimary,
                 fontSize: 12.0,
               ),
             ),
@@ -250,9 +249,13 @@ class _RoomsPageState extends State<RoomsPage> {
   }
 
   void _removeRoom(BuildContext context, int index) {
-    StorageManager().deleteRoom(_rooms[index]);
+    final uiRoom = _rooms[index];
+
+    StorageManager().deleteRoom(uiRoom);
+    PneumaCore().removeRoom(uiRoom.room.id);
+
     setState(() {
-      _rooms.removeAt(index);
+      PneumaCore().rooms.removeAt(index);
     });
   }
 
